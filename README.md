@@ -11,6 +11,7 @@ Objetivo deste repositório:
 
 - Parser e transpiler de `.dragon` para Python.
 - Execução de programas Dragon via CLI.
+- Checagem estática de tipos básicos: `int`, `string`, `bool`.
 - Sintaxe básica com:
   - `let` (variáveis)
   - `print(...)`
@@ -47,8 +48,7 @@ python3 dragonc.py transpile examples/math.dragon -o build/math.py
 
 ## Próximos passos recomendados
 
-1. Adicionar tipos (`int`, `string`, `bool`) com checagem estática.
-2. Criar bytecode e VM da Dragon (em vez de transpilar para Python).
-3. Implementar módulos e biblioteca padrão.
-4. Criar `dragon build` para apps desktop/CLI.
-5. Definir caminho para kernel/userspace do futuro SO (DragonOS).
+1. Criar bytecode e VM da Dragon (em vez de transpilar para Python).
+2. Implementar módulos e biblioteca padrão.
+3. Criar `dragon build` para apps desktop/CLI.
+4. Definir caminho para kernel/userspace do futuro SO (DragonOS).

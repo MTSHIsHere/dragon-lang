@@ -1,4 +1,4 @@
-# Dragon Language Specification (v0.1)
+# Dragon Language Specification (v0.2)
 
 ## 1. Objetivo
 A Dragon é uma linguagem simples para acelerar prototipação de apps e, no futuro, ser uma das linguagens principais do DragonOS.
@@ -11,44 +11,67 @@ Arquivos Dragon usam a extensão:
 ```
 
 ## 3. Regras léxicas
-- Espaços e tabs no início da linha são ignorados no v0.1.
+- Espaços e tabs no início da linha são ignorados no v0.2.
 - Comentários iniciam com `#`.
 - Linhas vazias são ignoradas.
 
-## 4. Sintaxe (v0.1)
+## 4. Sintaxe (v0.2)
 
-### 4.1 Variáveis
+### 4.1 Tipos básicos
+Tipos suportados no MVP:
+- `int`
+- `string`
+- `bool`
+
+### 4.2 Variáveis
+Declaração explícita com tipo:
+
 ```dragon
-let nome = "Dragon"
-let x = 10
+let nome: string = "Dragon"
+let x: int = 10
+let ativo: bool = true
 ```
 
-### 4.2 Saída
+Também é permitido inferir o tipo na declaração sem anotação:
+
+```dragon
+let total = 42
+```
+
+Reatribuição usa `=` sem `let`:
+
+```dragon
+total = total + 1
+```
+
+### 4.3 Saída
 ```dragon
 print("Olá")
 print(nome)
 ```
 
-### 4.3 Entrada (input)
+### 4.4 Entrada (input)
 ```dragon
-let nome = input("Seu nome: ")
+let nome: string = input("Seu nome: ")
 print(nome)
 ```
 
-### 4.4 Funções
+### 4.5 Funções
+Parâmetros de função devem ser tipados:
+
 ```dragon
-func soma(a, b)
+func soma(a: int, b: int)
     return a + b
 end
 ```
 
-### 4.5 Chamada de função
+### 4.6 Chamada de função
 ```dragon
-let resultado = soma(2, 3)
+let resultado: int = soma(2, 3)
 print(resultado)
 ```
 
-### 4.6 Condicionais
+### 4.7 Condicionais
 ```dragon
 if x > 10
     print("maior")
@@ -57,16 +80,16 @@ else
 end
 ```
 
-### 4.7 Laços
+### 4.8 Laços
 ```dragon
-let i = 0
+let i: int = 0
 while i < 3
     print(i)
-    let i = i + 1
+    i = i + 1
 end
 ```
 
-## 5. Semântica (v0.1)
+## 5. Semântica (v0.2)
 - `let` cria variável no escopo atual.
 - `input(...)` lê dados do terminal e retorna `string`.
 - `func` define função; bloco termina com `end`.
@@ -74,12 +97,17 @@ end
 - `while` permite repetição baseada em condição.
 - `return` encerra execução da função e devolve valor.
 - Expressões são avaliadas pelo backend Python (MVP).
+- O compilador realiza checagem estática:
+  - condição de `if/while` deve ser `bool`;
+  - não permite reatribuir variável com tipo diferente;
+  - não permite usar variável não declarada;
+  - valida tipos de argumentos em chamadas de função.
 
 ## 6. Limitações do MVP
 - Sem classes e módulos.
-- Sem tipagem estática.
+- Sem anotação explícita de tipo de retorno em `func`.
 - Backend depende de Python.
 
 ## 7. Roadmap curto
-- v0.2: tipos básicos e erros melhores.
-- v0.3: compilação para bytecode próprio.
+- v0.3: melhorar inferência e tipos de retorno de função.
+- v0.4: compilação para bytecode próprio.

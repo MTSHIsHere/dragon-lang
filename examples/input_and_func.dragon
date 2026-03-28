@@ -1,9 +1,9 @@
 # Exemplo: input + função
 
-func saudacao(nome)
+func saudacao(nome: string)
     return "Olá, " + nome + "!"
 end
 
-let nome = input("Digite seu nome: ")
-let msg = saudacao(nome)
+let nome: string = input("Digite seu nome: ")
+let msg: string = saudacao(nome)
 print(msg)
