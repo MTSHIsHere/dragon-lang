@@ -46,9 +46,15 @@ Para transpilar sem rodar (modo legado, útil para debug):
 python3 dragonc.py transpile examples/math.dragon -o build/math.py
 ```
 
+Para compilar bytecode distribuível (`.dbc`) e executar depois:
+
+```bash
+python3 dragonc.py compile examples/math.dragon -o build/math.dbc
+python3 dragonc.py runbc build/math.dbc
+```
+
 ## Próximos passos recomendados
 
-1. Persistir/serializar bytecode `.dbc` para distribuição.
-2. Implementar módulos e biblioteca padrão.
-3. Criar `dragon build` para apps desktop/CLI.
-4. Definir caminho para kernel/userspace do futuro SO (DragonOS).
+1. Implementar módulos e biblioteca padrão.
+2. Criar `dragon build` para apps desktop/CLI.
+3. Definir caminho para kernel/userspace do futuro SO (DragonOS).
