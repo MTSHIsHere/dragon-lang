@@ -1,0 +1,6 @@
+func soma(a, b)
+    return a + b
+end
+
+let resultado = soma(20, 22)
+print("Resultado: " + str(resultado))
