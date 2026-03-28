@@ -1,6 +1,7 @@
-func soma(a, b)
+func soma(a: int, b: int)
     return a + b
 end
 
-let resultado = soma(20, 22)
-print("Resultado: " + str(resultado))
+let resultado: int = soma(20, 22)
+print("Resultado:")
+print(resultado)
