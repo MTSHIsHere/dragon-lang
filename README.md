@@ -15,6 +15,8 @@ Objetivo deste repositório:
   - `let` (variáveis)
   - `print(...)`
   - funções com `func ... end`
+  - condicionais com `if ... else ... end`
+  - laços com `while ... end`
   - `return`
   - comentários com `#`
 
@@ -24,6 +26,7 @@ Objetivo deste repositório:
 - `dragonc.py` → compilador/transpilador principal.
 - `examples/hello.dragon` → exemplo simples.
 - `examples/math.dragon` → exemplo com função.
+- `examples/control_flow.dragon` → exemplo com `if/else` e `while`.
 
 ## Como executar
 
