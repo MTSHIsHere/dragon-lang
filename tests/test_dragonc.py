@@ -35,3 +35,10 @@ def test_else_without_if_raises_syntax_error():
     src = "else\nprint(\"erro\")\nend\n"
     with pytest.raises(DragonSyntaxError):
         transpile(src)
+
+
+def test_transpile_input():
+    src = 'let nome = input("Seu nome: ")\nprint(nome)\n'
+    py = transpile(src).python_code
+    assert 'nome = input("Seu nome: ")' in py
+    assert 'print(nome)' in py

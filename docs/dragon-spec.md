@@ -29,20 +29,26 @@ print("Olá")
 print(nome)
 ```
 
-### 4.3 Funções
+### 4.3 Entrada (input)
+```dragon
+let nome = input("Seu nome: ")
+print(nome)
+```
+
+### 4.4 Funções
 ```dragon
 func soma(a, b)
     return a + b
 end
 ```
 
-### 4.4 Chamada de função
+### 4.5 Chamada de função
 ```dragon
 let resultado = soma(2, 3)
 print(resultado)
 ```
 
-### 4.5 Condicionais
+### 4.6 Condicionais
 ```dragon
 if x > 10
     print("maior")
@@ -51,7 +57,7 @@ else
 end
 ```
 
-### 4.6 Laços
+### 4.7 Laços
 ```dragon
 let i = 0
 while i < 3
@@ -62,6 +68,7 @@ end
 
 ## 5. Semântica (v0.1)
 - `let` cria variável no escopo atual.
+- `input(...)` lê dados do terminal e retorna `string`.
 - `func` define função; bloco termina com `end`.
 - `if`/`else` permite desvio condicional.
 - `while` permite repetição baseada em condição.

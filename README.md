@@ -14,6 +14,7 @@ Objetivo deste repositório:
 - Sintaxe básica com:
   - `let` (variáveis)
   - `print(...)`
+  - `input(...)`
   - funções com `func ... end`
   - condicionais com `if ... else ... end`
   - laços com `while ... end`
@@ -35,6 +36,7 @@ Pré-requisito: Python 3.10+
 ```bash
 python3 dragonc.py run examples/hello.dragon
 python3 dragonc.py run examples/math.dragon
+python3 dragonc.py run examples/input_and_func.dragon
 ```
 
 Para transpilar sem rodar:

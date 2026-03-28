@@ -96,6 +96,10 @@ def transpile(source: str) -> CompileResult:
             out.append("    " * indent + line)
             continue
 
+        if line.startswith("input(") and line.endswith(")"):
+            out.append("    " * indent + line)
+            continue
+
         # fallback para expressão/chamada simples
         out.append("    " * indent + line)
 
