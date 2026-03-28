@@ -5,7 +5,6 @@ import argparse
 import ast
 import pathlib
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -21,6 +20,27 @@ class DragonTypeError(Exception):
 @dataclass
 class CompileResult:
     python_code: str
+
+
+@dataclass
+class Instruction:
+    op: str
+    arg: object | None = None
+    line: int = 0
+
+
+@dataclass
+class BytecodeFunction:
+    name: str
+    params: list[tuple[str, str]]
+    return_type: str | None
+    code: list[Instruction]
+
+
+@dataclass
+class BytecodeProgram:
+    main: list[Instruction]
+    functions: dict[str, BytecodeFunction]
 
 
 FUNC_RE = re.compile(r"^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*$")
@@ -421,6 +441,448 @@ def transpile(source: str) -> CompileResult:
     return CompileResult(python_code=python_code)
 
 
+def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> None:
+    expr = _normalize_expr(expr)
+    try:
+        node = ast.parse(expr, mode="eval").body
+    except SyntaxError as exc:
+        raise DragonSyntaxError(f"Linha {idx}: expressão inválida: {expr}") from exc
+
+    def emit(op: str, arg: object | None = None) -> None:
+        out.append(Instruction(op=op, arg=arg, line=idx))
+
+    def visit(n: ast.AST) -> None:
+        if isinstance(n, ast.Constant):
+            emit("PUSH_CONST", n.value)
+            return
+        if isinstance(n, ast.Name):
+            emit("LOAD_VAR", n.id)
+            return
+        if isinstance(n, ast.UnaryOp):
+            visit(n.operand)
+            if isinstance(n.op, ast.Not):
+                emit("UNARY_NOT")
+                return
+            if isinstance(n.op, ast.USub):
+                emit("UNARY_NEG")
+                return
+            raise DragonTypeError(f"Linha {idx}: operador unário não suportado")
+        if isinstance(n, ast.BinOp):
+            visit(n.left)
+            visit(n.right)
+            if isinstance(n.op, ast.Add):
+                emit("BINARY_ADD")
+                return
+            if isinstance(n.op, ast.Sub):
+                emit("BINARY_SUB")
+                return
+            if isinstance(n.op, ast.Mult):
+                emit("BINARY_MUL")
+                return
+            if isinstance(n.op, ast.Div):
+                emit("BINARY_DIV")
+                return
+            if isinstance(n.op, ast.FloorDiv):
+                emit("BINARY_FLOORDIV")
+                return
+            if isinstance(n.op, ast.Mod):
+                emit("BINARY_MOD")
+                return
+            raise DragonTypeError(f"Linha {idx}: operador não suportado")
+        if isinstance(n, ast.BoolOp):
+            if not n.values:
+                raise DragonTypeError(f"Linha {idx}: expressão booleana inválida")
+            visit(n.values[0])
+            for nxt in n.values[1:]:
+                visit(nxt)
+                if isinstance(n.op, ast.And):
+                    emit("BOOL_AND")
+                elif isinstance(n.op, ast.Or):
+                    emit("BOOL_OR")
+                else:
+                    raise DragonTypeError(f"Linha {idx}: operador lógico não suportado")
+            return
+        if isinstance(n, ast.Compare):
+            if len(n.ops) != 1 or len(n.comparators) != 1:
+                raise DragonTypeError(
+                    f"Linha {idx}: comparação encadeada ainda não suportada na VM"
+                )
+            visit(n.left)
+            visit(n.comparators[0])
+            op_map = {
+                ast.Eq: "==",
+                ast.NotEq: "!=",
+                ast.Lt: "<",
+                ast.LtE: "<=",
+                ast.Gt: ">",
+                ast.GtE: ">=",
+            }
+            cmp_type = type(n.ops[0])
+            if cmp_type not in op_map:
+                raise DragonTypeError(f"Linha {idx}: operador de comparação não suportado")
+            emit("COMPARE", op_map[cmp_type])
+            return
+        if isinstance(n, ast.Call):
+            if not isinstance(n.func, ast.Name):
+                raise DragonTypeError(f"Linha {idx}: chamada de função inválida")
+            func_name = n.func.id
+            for arg in n.args:
+                visit(arg)
+            if func_name == "input":
+                emit("INPUT")
+                return
+            emit("CALL", (func_name, len(n.args)))
+            return
+        raise DragonTypeError(f"Linha {idx}: expressão não suportada")
+
+    visit(node)
+
+
+def compile_to_bytecode(source: str) -> BytecodeProgram:
+    lines = source.splitlines()
+    sanitized: list[tuple[int, str]] = []
+    for idx, raw in enumerate(lines, start=1):
+        line = _sanitize_line(raw)
+        if not line or line.startswith("#"):
+            continue
+        sanitized.append((idx, line))
+
+    functions: dict[str, FuncInfo] = {}
+    bytecode_functions: dict[str, BytecodeFunction] = {}
+    global_scope = ScopeFrame(kind="global", vars={})
+
+    def compile_block(
+        *,
+        pos: int,
+        out: list[Instruction],
+        scopes: list[ScopeFrame],
+        func_name_stack: list[str],
+        stop_tokens: set[str],
+    ) -> int:
+        while pos < len(sanitized):
+            idx, line = sanitized[pos]
+            if line in stop_tokens:
+                return pos
+
+            func_match = FUNC_RE.match(line)
+            if func_match:
+                name = func_match.group(1)
+                args = func_match.group(2).strip()
+                params = _parse_func_args(args, idx)
+                if name in functions:
+                    raise DragonSyntaxError(f"Linha {idx}: função '{name}' já declarada")
+                functions[name] = FuncInfo(params=params)
+                pos += 1
+                body_code: list[Instruction] = []
+                func_scope = ScopeFrame(kind="func", vars={param: typ for param, typ in params})
+                inner_pos = compile_block(
+                    pos=pos,
+                    out=body_code,
+                    scopes=scopes + [func_scope],
+                    func_name_stack=func_name_stack + [name],
+                    stop_tokens={"end"},
+                )
+                if inner_pos >= len(sanitized) or sanitized[inner_pos][1] != "end":
+                    raise DragonSyntaxError(
+                        f"Linha {idx}: função '{name}' não fechada com 'end'"
+                    )
+                body_code.append(Instruction(op="PUSH_CONST", arg=None, line=idx))
+                body_code.append(Instruction(op="RETURN", line=idx))
+                bytecode_functions[name] = BytecodeFunction(
+                    name=name,
+                    params=params,
+                    return_type=functions[name].return_type,
+                    code=body_code,
+                )
+                pos = inner_pos + 1
+                continue
+
+            if_match = IF_RE.match(line)
+            if if_match:
+                condition = if_match.group(1).strip()
+                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
+                if cond_type != "bool":
+                    raise DragonTypeError(f"Linha {idx}: condição de if deve ser bool")
+                _compile_expr_to_bytecode(condition, idx, out)
+                jump_if_false_idx = len(out)
+                out.append(Instruction(op="JUMP_IF_FALSE", arg=None, line=idx))
+
+                pos = compile_block(
+                    pos=pos + 1,
+                    out=out,
+                    scopes=scopes + [ScopeFrame(kind="if", vars={})],
+                    func_name_stack=func_name_stack,
+                    stop_tokens={"else", "end"},
+                )
+                if pos >= len(sanitized):
+                    raise DragonSyntaxError(f"Linha {idx}: if sem 'end'")
+
+                token = sanitized[pos][1]
+                if token == "else":
+                    jump_end_idx = len(out)
+                    out.append(Instruction(op="JUMP", arg=None, line=idx))
+                    out[jump_if_false_idx].arg = len(out)
+                    pos = compile_block(
+                        pos=pos + 1,
+                        out=out,
+                        scopes=scopes + [ScopeFrame(kind="else", vars={})],
+                        func_name_stack=func_name_stack,
+                        stop_tokens={"end"},
+                    )
+                    if pos >= len(sanitized) or sanitized[pos][1] != "end":
+                        raise DragonSyntaxError(f"Linha {idx}: else sem 'end'")
+                    out[jump_end_idx].arg = len(out)
+                    pos += 1
+                else:
+                    out[jump_if_false_idx].arg = len(out)
+                    pos += 1
+                continue
+
+            while_match = WHILE_RE.match(line)
+            if while_match:
+                condition = while_match.group(1).strip()
+                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
+                if cond_type != "bool":
+                    raise DragonTypeError(f"Linha {idx}: condição de while deve ser bool")
+                loop_start = len(out)
+                _compile_expr_to_bytecode(condition, idx, out)
+                jump_out_idx = len(out)
+                out.append(Instruction(op="JUMP_IF_FALSE", arg=None, line=idx))
+
+                pos = compile_block(
+                    pos=pos + 1,
+                    out=out,
+                    scopes=scopes + [ScopeFrame(kind="while", vars={})],
+                    func_name_stack=func_name_stack,
+                    stop_tokens={"end"},
+                )
+                if pos >= len(sanitized) or sanitized[pos][1] != "end":
+                    raise DragonSyntaxError(f"Linha {idx}: while sem 'end'")
+                out.append(Instruction(op="JUMP", arg=loop_start, line=idx))
+                out[jump_out_idx].arg = len(out)
+                pos += 1
+                continue
+
+            let_typed_match = LET_TYPED_RE.match(line)
+            if let_typed_match:
+                name = let_typed_match.group(1)
+                declared_type = let_typed_match.group(2)
+                expr = let_typed_match.group(3)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                if expr_type != declared_type and expr_type != "unknown":
+                    raise DragonTypeError(
+                        f"Linha {idx}: variável '{name}' é {declared_type}, mas recebeu {expr_type}"
+                    )
+                scopes[-1].vars[name] = declared_type
+                _compile_expr_to_bytecode(expr, idx, out)
+                out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
+                pos += 1
+                continue
+
+            let_match = LET_RE.match(line)
+            if let_match:
+                name = let_match.group(1)
+                expr = let_match.group(2)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                scopes[-1].vars[name] = expr_type
+                _compile_expr_to_bytecode(expr, idx, out)
+                out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
+                pos += 1
+                continue
+
+            assign_match = ASSIGN_RE.match(line)
+            if assign_match:
+                name = assign_match.group(1)
+                expr = assign_match.group(2)
+                var_type = _resolve_var_type(name, scopes)
+                if var_type is None:
+                    raise DragonTypeError(f"Linha {idx}: variável '{name}' não declarada")
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                if expr_type != var_type and expr_type != "unknown":
+                    raise DragonTypeError(
+                        f"Linha {idx}: variável '{name}' é {var_type}, mas recebeu {expr_type}"
+                    )
+                _compile_expr_to_bytecode(expr, idx, out)
+                out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
+                pos += 1
+                continue
+
+            if line.startswith("return "):
+                expr = line[len("return ") :].strip()
+                if not func_name_stack:
+                    raise DragonSyntaxError(f"Linha {idx}: 'return' fora de função")
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                current_func_name = func_name_stack[-1]
+                current_func = functions[current_func_name]
+                if current_func.return_type is None:
+                    current_func.return_type = expr_type
+                elif expr_type != current_func.return_type:
+                    raise DragonTypeError(
+                        f"Linha {idx}: função '{current_func_name}' retorna tipos conflitantes "
+                        f"({current_func.return_type} e {expr_type})"
+                    )
+                _compile_expr_to_bytecode(expr, idx, out)
+                out.append(Instruction(op="RETURN", line=idx))
+                pos += 1
+                continue
+
+            if line.startswith("print(") and line.endswith(")"):
+                expr = line[len("print(") : -1].strip()
+                if expr:
+                    _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                    _compile_expr_to_bytecode(expr, idx, out)
+                else:
+                    out.append(Instruction(op="PUSH_CONST", arg="", line=idx))
+                out.append(Instruction(op="PRINT", line=idx))
+                pos += 1
+                continue
+
+            _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions)
+            _compile_expr_to_bytecode(line, idx, out)
+            out.append(Instruction(op="POP", line=idx))
+            pos += 1
+
+        return pos
+
+    main_code: list[Instruction] = []
+    end_pos = compile_block(
+        pos=0,
+        out=main_code,
+        scopes=[global_scope],
+        func_name_stack=[],
+        stop_tokens=set(),
+    )
+    if end_pos != len(sanitized):
+        idx, _ = sanitized[end_pos]
+        raise DragonSyntaxError(f"Linha {idx}: bloco não fechado com 'end'")
+    main_code.append(Instruction(op="HALT", line=0))
+    return BytecodeProgram(main=main_code, functions=bytecode_functions)
+
+
+@dataclass
+class _Frame:
+    code: list[Instruction]
+    locals: dict[str, object]
+    name: str
+    ip: int = 0
+
+
+def run_bytecode(program: BytecodeProgram) -> None:
+    stack: list[object] = []
+    globals_: dict[str, object] = {}
+    frames: list[_Frame] = [_Frame(code=program.main, locals=globals_, name="<main>")]
+
+    def pop() -> object:
+        if not stack:
+            raise RuntimeError("Stack underflow na VM Dragon")
+        return stack.pop()
+
+    while frames:
+        frame = frames[-1]
+        if frame.ip >= len(frame.code):
+            frames.pop()
+            if frames:
+                stack.append(None)
+            continue
+
+        inst = frame.code[frame.ip]
+        frame.ip += 1
+
+        if inst.op == "PUSH_CONST":
+            stack.append(inst.arg)
+        elif inst.op == "LOAD_VAR":
+            name = str(inst.arg)
+            if name in frame.locals:
+                stack.append(frame.locals[name])
+            elif name in globals_:
+                stack.append(globals_[name])
+            else:
+                raise DragonTypeError(f"Linha {inst.line}: variável '{name}' não declarada")
+        elif inst.op == "STORE_VAR":
+            frame.locals[str(inst.arg)] = pop()
+        elif inst.op == "POP":
+            pop()
+        elif inst.op == "PRINT":
+            print(pop())
+        elif inst.op == "INPUT":
+            prompt = pop()
+            stack.append(input(str(prompt)))
+        elif inst.op == "CALL":
+            func_name, argc = inst.arg
+            args = [pop() for _ in range(argc)][::-1]
+            if func_name not in program.functions:
+                raise DragonTypeError(
+                    f"Linha {inst.line}: função '{func_name}' não declarada"
+                )
+            fn = program.functions[func_name]
+            call_locals = {name: value for (name, _), value in zip(fn.params, args)}
+            frames.append(_Frame(code=fn.code, locals=call_locals, name=func_name))
+        elif inst.op == "RETURN":
+            result = pop()
+            frames.pop()
+            if frames:
+                stack.append(result)
+        elif inst.op == "JUMP":
+            frame.ip = int(inst.arg)
+        elif inst.op == "JUMP_IF_FALSE":
+            cond = pop()
+            if not cond:
+                frame.ip = int(inst.arg)
+        elif inst.op == "UNARY_NOT":
+            stack.append(not pop())
+        elif inst.op == "UNARY_NEG":
+            stack.append(-int(pop()))
+        elif inst.op == "BINARY_ADD":
+            b = pop()
+            a = pop()
+            stack.append(a + b)
+        elif inst.op == "BINARY_SUB":
+            b = pop()
+            a = pop()
+            stack.append(int(a) - int(b))
+        elif inst.op == "BINARY_MUL":
+            b = pop()
+            a = pop()
+            stack.append(int(a) * int(b))
+        elif inst.op in {"BINARY_DIV", "BINARY_FLOORDIV"}:
+            b = pop()
+            a = pop()
+            stack.append(int(a) // int(b))
+        elif inst.op == "BINARY_MOD":
+            b = pop()
+            a = pop()
+            stack.append(int(a) % int(b))
+        elif inst.op == "BOOL_AND":
+            b = bool(pop())
+            a = bool(pop())
+            stack.append(a and b)
+        elif inst.op == "BOOL_OR":
+            b = bool(pop())
+            a = bool(pop())
+            stack.append(a or b)
+        elif inst.op == "COMPARE":
+            b = pop()
+            a = pop()
+            if inst.arg == "==":
+                stack.append(a == b)
+            elif inst.arg == "!=":
+                stack.append(a != b)
+            elif inst.arg == "<":
+                stack.append(a < b)
+            elif inst.arg == "<=":
+                stack.append(a <= b)
+            elif inst.arg == ">":
+                stack.append(a > b)
+            elif inst.arg == ">=":
+                stack.append(a >= b)
+            else:
+                raise RuntimeError(f"Comparador inválido: {inst.arg}")
+        elif inst.op == "HALT":
+            break
+        else:
+            raise RuntimeError(f"Opcode inválido: {inst.op}")
+
+
 def read_file(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -457,20 +919,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     source_code = read_file(src)
     try:
-        result = transpile(source_code)
+        program = compile_to_bytecode(source_code)
     except (DragonSyntaxError, DragonTypeError) as exc:
         print(f"Erro Dragon: {exc}", file=sys.stderr)
         return 1
 
-    build_file = pathlib.Path("build") / (src.stem + ".py")
-    write_file(build_file, result.python_code)
-
-    proc = subprocess.run([sys.executable, str(build_file)], check=False)
-    return proc.returncode
+    run_bytecode(program)
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Dragon language compiler (MVP)")
+    parser = argparse.ArgumentParser(description="Dragon language compiler/VM (MVP)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_transpile = sub.add_parser("transpile", help="Transpila arquivo .dragon para Python")

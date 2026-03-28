@@ -9,7 +9,7 @@ Objetivo deste repositório:
 
 ## O que já existe neste MVP
 
-- Parser e transpiler de `.dragon` para Python.
+- Parser, compilador de bytecode e VM própria da Dragon.
 - Execução de programas Dragon via CLI.
 - Checagem estática de tipos básicos: `int`, `string`, `bool`.
 - Sintaxe básica com:
@@ -40,7 +40,7 @@ python3 dragonc.py run examples/math.dragon
 python3 dragonc.py run examples/input_and_func.dragon
 ```
 
-Para transpilar sem rodar:
+Para transpilar sem rodar (modo legado, útil para debug):
 
 ```bash
 python3 dragonc.py transpile examples/math.dragon -o build/math.py
@@ -48,7 +48,7 @@ python3 dragonc.py transpile examples/math.dragon -o build/math.py
 
 ## Próximos passos recomendados
 
-1. Criar bytecode e VM da Dragon (em vez de transpilar para Python).
+1. Persistir/serializar bytecode `.dbc` para distribuição.
 2. Implementar módulos e biblioteca padrão.
 3. Criar `dragon build` para apps desktop/CLI.
 4. Definir caminho para kernel/userspace do futuro SO (DragonOS).
