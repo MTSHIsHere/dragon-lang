@@ -20,6 +20,8 @@ class CompileResult:
 
 FUNC_RE = re.compile(r"^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*$")
 LET_RE = re.compile(r"^let\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
+IF_RE = re.compile(r"^if\s+(.+)$")
+WHILE_RE = re.compile(r"^while\s+(.+)$")
 
 
 def _sanitize_line(line: str) -> str:
@@ -30,6 +32,7 @@ def transpile(source: str) -> CompileResult:
     lines = source.splitlines()
     out: list[str] = []
     indent = 0
+    block_stack: list[str] = []
 
     for idx, raw in enumerate(lines, start=1):
         line = _sanitize_line(raw)
@@ -38,8 +41,9 @@ def transpile(source: str) -> CompileResult:
             continue
 
         if line == "end":
-            if indent == 0:
+            if not block_stack:
                 raise DragonSyntaxError(f"Linha {idx}: 'end' sem bloco aberto")
+            block_stack.pop()
             indent -= 1
             continue
 
@@ -49,6 +53,32 @@ def transpile(source: str) -> CompileResult:
             args = func_match.group(2).strip()
             out.append("    " * indent + f"def {name}({args}):")
             indent += 1
+            block_stack.append("func")
+            continue
+
+        if_match = IF_RE.match(line)
+        if if_match:
+            condition = if_match.group(1).strip()
+            out.append("    " * indent + f"if {condition}:")
+            indent += 1
+            block_stack.append("if")
+            continue
+
+        if line == "else":
+            if not block_stack or block_stack[-1] != "if":
+                raise DragonSyntaxError(f"Linha {idx}: 'else' sem 'if' correspondente")
+            indent -= 1
+            out.append("    " * indent + "else:")
+            indent += 1
+            block_stack[-1] = "else"
+            continue
+
+        while_match = WHILE_RE.match(line)
+        if while_match:
+            condition = while_match.group(1).strip()
+            out.append("    " * indent + f"while {condition}:")
+            indent += 1
+            block_stack.append("while")
             continue
 
         let_match = LET_RE.match(line)
@@ -70,7 +100,7 @@ def transpile(source: str) -> CompileResult:
         out.append("    " * indent + line)
 
     if indent != 0:
-        raise DragonSyntaxError("Bloco 'func' não fechado com 'end'")
+        raise DragonSyntaxError("Bloco não fechado com 'end'")
 
     python_code = "\n".join(out) + "\n"
     return CompileResult(python_code=python_code)

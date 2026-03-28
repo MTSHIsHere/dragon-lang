@@ -42,18 +42,37 @@ let resultado = soma(2, 3)
 print(resultado)
 ```
 
+### 4.5 Condicionais
+```dragon
+if x > 10
+    print("maior")
+else
+    print("menor ou igual")
+end
+```
+
+### 4.6 Laços
+```dragon
+let i = 0
+while i < 3
+    print(i)
+    let i = i + 1
+end
+```
+
 ## 5. Semântica (v0.1)
 - `let` cria variável no escopo atual.
 - `func` define função; bloco termina com `end`.
+- `if`/`else` permite desvio condicional.
+- `while` permite repetição baseada em condição.
 - `return` encerra execução da função e devolve valor.
 - Expressões são avaliadas pelo backend Python (MVP).
 
 ## 6. Limitações do MVP
-- Sem classes, módulos, loops ou condicionais.
+- Sem classes e módulos.
 - Sem tipagem estática.
 - Backend depende de Python.
 
 ## 7. Roadmap curto
-- v0.2: `if/else`, `while`.
-- v0.3: tipos básicos e erros melhores.
-- v0.4: compilação para bytecode próprio.
+- v0.2: tipos básicos e erros melhores.
+- v0.3: compilação para bytecode próprio.
