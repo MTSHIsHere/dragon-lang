@@ -96,7 +96,7 @@ end
 - `if`/`else` permite desvio condicional.
 - `while` permite repetição baseada em condição.
 - `return` encerra execução da função e devolve valor.
-- Expressões são avaliadas pelo backend Python (MVP).
+- Expressões são compiladas para bytecode Dragon e executadas na VM Dragon.
 - O compilador realiza checagem estática:
   - condição de `if/while` deve ser `bool`;
   - não permite reatribuir variável com tipo diferente;
@@ -106,8 +106,8 @@ end
 ## 6. Limitações do MVP
 - Sem classes e módulos.
 - Sem anotação explícita de tipo de retorno em `func`.
-- Backend depende de Python.
+- Bytecode ainda não é serializado para arquivo próprio (`.dbc`).
 
 ## 7. Roadmap curto
 - v0.3: melhorar inferência e tipos de retorno de função.
-- v0.4: compilação para bytecode próprio.
+- v0.4: serialização de bytecode e toolchain (`dragon build`).

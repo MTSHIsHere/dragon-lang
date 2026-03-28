@@ -1,6 +1,12 @@
 import pytest
 
-from dragonc import DragonSyntaxError, DragonTypeError, transpile
+from dragonc import (
+    DragonSyntaxError,
+    DragonTypeError,
+    compile_to_bytecode,
+    run_bytecode,
+    transpile,
+)
 
 
 def test_transpile_typed_let_and_print():
@@ -90,3 +96,31 @@ def test_type_error_on_conflicting_function_return_types():
     src = "func foo(a: bool)\nif a\nreturn 1\nelse\nreturn false\nend\nend\n"
     with pytest.raises(DragonTypeError):
         transpile(src)
+
+
+def test_bytecode_vm_runs_loop_and_prints(capsys):
+    src = (
+        "let x: int = 0\n"
+        "while x < 3\n"
+        "print(x)\n"
+        "x = x + 1\n"
+        "end\n"
+    )
+    program = compile_to_bytecode(src)
+    run_bytecode(program)
+    out = capsys.readouterr().out
+    assert out == "0\n1\n2\n"
+
+
+def test_bytecode_vm_runs_function_call(capsys):
+    src = (
+        "func soma(a: int, b: int)\n"
+        "return a + b\n"
+        "end\n"
+        "let r: int = soma(2, 3)\n"
+        "print(r)\n"
+    )
+    program = compile_to_bytecode(src)
+    run_bytecode(program)
+    out = capsys.readouterr().out
+    assert out == "5\n"
