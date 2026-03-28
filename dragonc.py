@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import pathlib
 import re
 import sys
@@ -41,6 +42,8 @@ class BytecodeFunction:
 class BytecodeProgram:
     main: list[Instruction]
     functions: dict[str, BytecodeFunction]
+
+BYTECODE_FORMAT_VERSION = 1
 
 
 FUNC_RE = re.compile(r"^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*$")
@@ -883,6 +886,102 @@ def run_bytecode(program: BytecodeProgram) -> None:
             raise RuntimeError(f"Opcode inválido: {inst.op}")
 
 
+def _instruction_to_dict(inst: Instruction) -> dict[str, object]:
+    return {"op": inst.op, "arg": inst.arg, "line": inst.line}
+
+
+def _instruction_from_dict(raw: dict[str, object]) -> Instruction:
+    op = raw.get("op")
+    line = raw.get("line")
+    if not isinstance(op, str) or not isinstance(line, int):
+        raise DragonSyntaxError("Bytecode inválido: instrução malformada")
+
+    arg = raw.get("arg")
+    if op == "CALL" and arg is not None:
+        if not (isinstance(arg, list) and len(arg) == 2):
+            raise DragonSyntaxError("Bytecode inválido: argumento de CALL malformado")
+        arg = (arg[0], arg[1])
+    return Instruction(op=op, arg=arg, line=line)
+
+
+def serialize_bytecode(program: BytecodeProgram) -> str:
+    payload = {
+        "format": "dragon-bytecode",
+        "version": BYTECODE_FORMAT_VERSION,
+        "main": [_instruction_to_dict(inst) for inst in program.main],
+        "functions": {
+            name: {
+                "name": fn.name,
+                "params": [[param_name, param_type] for param_name, param_type in fn.params],
+                "return_type": fn.return_type,
+                "code": [_instruction_to_dict(inst) for inst in fn.code],
+            }
+            for name, fn in program.functions.items()
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def deserialize_bytecode(content: str) -> BytecodeProgram:
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise DragonSyntaxError("Bytecode inválido: arquivo .dbc não é JSON válido") from exc
+
+    if not isinstance(raw, dict):
+        raise DragonSyntaxError("Bytecode inválido: raiz do arquivo deve ser objeto JSON")
+    if raw.get("format") != "dragon-bytecode":
+        raise DragonSyntaxError("Bytecode inválido: cabeçalho de formato desconhecido")
+    if raw.get("version") != BYTECODE_FORMAT_VERSION:
+        raise DragonSyntaxError("Bytecode inválido: versão de formato não suportada")
+
+    main_raw = raw.get("main")
+    funcs_raw = raw.get("functions")
+    if not isinstance(main_raw, list) or not isinstance(funcs_raw, dict):
+        raise DragonSyntaxError("Bytecode inválido: seções 'main' ou 'functions' ausentes")
+
+    main = [_instruction_from_dict(inst) for inst in main_raw]
+    functions: dict[str, BytecodeFunction] = {}
+    for name, fn_raw in funcs_raw.items():
+        if not isinstance(name, str) or not isinstance(fn_raw, dict):
+            raise DragonSyntaxError("Bytecode inválido: função malformada")
+        params_raw = fn_raw.get("params")
+        code_raw = fn_raw.get("code")
+        return_type = fn_raw.get("return_type")
+        if not isinstance(params_raw, list) or not isinstance(code_raw, list):
+            raise DragonSyntaxError("Bytecode inválido: função com params/code inválidos")
+        params: list[tuple[str, str]] = []
+        for param in params_raw:
+            if (
+                not isinstance(param, list)
+                or len(param) != 2
+                or not isinstance(param[0], str)
+                or not isinstance(param[1], str)
+            ):
+                raise DragonSyntaxError("Bytecode inválido: parâmetro de função malformado")
+            params.append((param[0], param[1]))
+        if return_type is not None and not isinstance(return_type, str):
+            raise DragonSyntaxError("Bytecode inválido: return_type malformado")
+        code = [_instruction_from_dict(inst) for inst in code_raw]
+        functions[name] = BytecodeFunction(
+            name=name,
+            params=params,
+            return_type=return_type,
+            code=code,
+        )
+
+    return BytecodeProgram(main=main, functions=functions)
+
+
+def write_bytecode_file(path: pathlib.Path, program: BytecodeProgram) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(serialize_bytecode(program), encoding="utf-8")
+
+
+def read_bytecode_file(path: pathlib.Path) -> BytecodeProgram:
+    return deserialize_bytecode(path.read_text(encoding="utf-8"))
+
+
 def read_file(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -928,6 +1027,41 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compile(args: argparse.Namespace) -> int:
+    src = pathlib.Path(args.file)
+    if src.suffix != ".dragon":
+        print("Erro: arquivo deve ter extensão .dragon", file=sys.stderr)
+        return 2
+
+    source_code = read_file(src)
+    try:
+        program = compile_to_bytecode(source_code)
+    except (DragonSyntaxError, DragonTypeError) as exc:
+        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        return 1
+
+    output = pathlib.Path(args.output) if args.output else src.with_suffix(".dbc")
+    write_bytecode_file(output, program)
+    print(f"Bytecode compilado com sucesso: {output}")
+    return 0
+
+
+def cmd_runbc(args: argparse.Namespace) -> int:
+    src = pathlib.Path(args.file)
+    if src.suffix != ".dbc":
+        print("Erro: arquivo deve ter extensão .dbc", file=sys.stderr)
+        return 2
+
+    try:
+        program = read_bytecode_file(src)
+    except (OSError, DragonSyntaxError) as exc:
+        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        return 1
+
+    run_bytecode(program)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dragon language compiler/VM (MVP)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -940,6 +1074,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="Executa programa .dragon")
     p_run.add_argument("file", help="Arquivo fonte .dragon")
     p_run.set_defaults(func=cmd_run)
+
+    p_compile = sub.add_parser("compile", help="Compila .dragon para bytecode .dbc")
+    p_compile.add_argument("file", help="Arquivo fonte .dragon")
+    p_compile.add_argument("-o", "--output", help="Arquivo de saída .dbc")
+    p_compile.set_defaults(func=cmd_compile)
+
+    p_runbc = sub.add_parser("runbc", help="Executa bytecode .dbc")
+    p_runbc.add_argument("file", help="Arquivo bytecode .dbc")
+    p_runbc.set_defaults(func=cmd_runbc)
 
     return parser
 

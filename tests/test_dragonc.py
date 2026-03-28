@@ -3,8 +3,12 @@ import pytest
 from dragonc import (
     DragonSyntaxError,
     DragonTypeError,
+    cmd_compile,
+    cmd_runbc,
     compile_to_bytecode,
+    deserialize_bytecode,
     run_bytecode,
+    serialize_bytecode,
     transpile,
 )
 
@@ -124,3 +128,38 @@ def test_bytecode_vm_runs_function_call(capsys):
     run_bytecode(program)
     out = capsys.readouterr().out
     assert out == "5\n"
+
+
+def test_bytecode_serialization_roundtrip(capsys):
+    src = 'let nome: string = "Dragon"\nprint(nome)\n'
+    original = compile_to_bytecode(src)
+    blob = serialize_bytecode(original)
+    loaded = deserialize_bytecode(blob)
+    run_bytecode(loaded)
+    out = capsys.readouterr().out
+    assert out == "Dragon\n"
+
+
+def test_compile_and_runbc_commands(tmp_path, capsys):
+    source = tmp_path / "program.dragon"
+    source.write_text('print("ok")\n', encoding="utf-8")
+    out_file = tmp_path / "program.dbc"
+
+    compile_exit = cmd_compile(type("Args", (), {"file": str(source), "output": str(out_file)}))
+    assert compile_exit == 0
+    assert out_file.exists()
+
+    run_exit = cmd_runbc(type("Args", (), {"file": str(out_file)}))
+    assert run_exit == 0
+    out = capsys.readouterr().out
+    assert "ok\n" in out
+
+
+def test_runbc_invalid_payload_returns_error(tmp_path, capsys):
+    bad = tmp_path / "invalid.dbc"
+    bad.write_text("not-json", encoding="utf-8")
+
+    exit_code = cmd_runbc(type("Args", (), {"file": str(bad)}))
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "não é JSON válido" in err

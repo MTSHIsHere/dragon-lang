@@ -106,8 +106,8 @@ end
 ## 6. Limitações do MVP
 - Sem classes e módulos.
 - Sem anotação explícita de tipo de retorno em `func`.
-- Bytecode ainda não é serializado para arquivo próprio (`.dbc`).
+- Formato `.dbc` ainda não possui assinatura/criptografia para distribuição segura.
 
 ## 7. Roadmap curto
 - v0.3: melhorar inferência e tipos de retorno de função.
-- v0.4: serialização de bytecode e toolchain (`dragon build`).
+- v0.4: evoluir toolchain (`dragon build`) e empacotamento.
