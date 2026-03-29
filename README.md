@@ -1,40 +1,40 @@
 # Dragon Language (MVP)
 
-Dragon é uma linguagem de programação inicial (MVP) com extensão `.dragon`.
+Dragon is an early-stage programming language (MVP) with the `.dragon` extension.
 
-Objetivo deste repositório:
-- Definir uma base simples da linguagem Dragon.
-- Permitir criar pequenos apps de terminal.
-- Servir de base para evoluir para uma linguagem mais robusta para o futuro SO.
+Repository goals:
+- Define a simple foundation for the Dragon language.
+- Enable building small terminal applications.
+- Serve as a base to evolve into a more robust language for the future OS.
 
-## O que já existe neste MVP
+## What already exists in this MVP
 
-- Parser, compilador de bytecode e VM própria da Dragon.
-- Execução de programas Dragon via CLI.
-- Checagem estática de tipos básicos: `int`, `string`, `bool`.
-- Sintaxe básica com:
-  - `let` (variáveis)
+- Parser, bytecode compiler, and Dragon's own VM.
+- Execution of Dragon programs via CLI.
+- Static type checking for basic types: `int`, `string`, `bool`.
+- Basic syntax with:
+  - `let` (variables)
   - `print(...)`
   - `input(...)`
-  - funções com `func ... end`
-  - condicionais com `if ... else ... end`
-  - laços com `while ... end`
+  - functions with `func ... end`
+  - conditionals with `if ... else ... end`
+  - loops with `while ... end`
   - `return`
-- comentários com `#`
-  - módulos com `import nome_do_modulo`
-  - biblioteca padrão com `import std`
+- comments with `#`
+  - modules with `import module_name`
+  - standard library with `import std`
 
-## Estrutura
+## Structure
 
-- `docs/dragon-spec.md` → especificação inicial da linguagem.
-- `dragonc.py` → compilador/transpilador principal.
-- `examples/hello.dragon` → exemplo simples.
-- `examples/math.dragon` → exemplo com função.
-- `examples/control_flow.dragon` → exemplo com `if/else` e `while`.
+- `docs/dragon-spec.md` → initial language specification.
+- `dragonc.py` → main compiler/transpiler.
+- `examples/hello.dragon` → simple example.
+- `examples/math.dragon` → function example.
+- `examples/control_flow.dragon` → `if/else` and `while` example.
 
-## Como executar
+## How to run
 
-Pré-requisito: Python 3.10+
+Prerequisite: Python 3.10+
 
 ```bash
 python3 dragonc.py run examples/hello.dragon
@@ -42,31 +42,31 @@ python3 dragonc.py run examples/math.dragon
 python3 dragonc.py run examples/input_and_func.dragon
 ```
 
-Para transpilar sem rodar (modo legado, útil para debug):
+To transpile without running (legacy mode, useful for debugging):
 
 ```bash
 python3 dragonc.py transpile examples/math.dragon -o build/math.py
 ```
 
-Para compilar bytecode distribuível (`.dbc`) e executar depois:
+To compile distributable bytecode (`.dbc`) and run it later:
 
 ```bash
 python3 dragonc.py compile examples/math.dragon -o build/math.dbc
 python3 dragonc.py runbc build/math.dbc
 ```
 
-## Próximos passos recomendados
+## Recommended next steps
 
-1. Expandir módulos com namespaces (`math.soma`) e resolução por pacote.
-2. Criar `dragon build` para apps desktop/CLI.
-3. Definir caminho para kernel/userspace do futuro SO (DragonOS).
+1. Expand modules with namespaces (`math.add`) and package-based resolution.
+2. Create `dragon build` for desktop/CLI apps.
+3. Define the path for the future DragonOS kernel/userspace.
 
-## Módulos e biblioteca padrão (inicial)
+## Modules and standard library (initial)
 
-- `import std` habilita funções nativas:
-  - `tamanho(string) -> int`
-  - `maiusculo(string) -> string`
-  - `minusculo(string) -> string`
-  - `para_int(string) -> int`
-  - `para_string(int) -> string`
-- `import nome` procura por `nome.dragon` na mesma pasta do arquivo principal.
+- `import std` enables native functions:
+  - `length(string) -> int`
+  - `uppercase(string) -> string`
+  - `lowercase(string) -> string`
+  - `to_int(string) -> int`
+  - `to_string(int) -> string`
+- `import name` looks for `name.dragon` in the same folder as the main file.

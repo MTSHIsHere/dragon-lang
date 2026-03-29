@@ -75,43 +75,43 @@ class NativeFunction:
 
 
 STD_NATIVE_FUNCTIONS: dict[str, NativeFunction] = {
-    "tamanho": NativeFunction(
-        info=FuncInfo(params=[("texto", "string")], return_type="int"),
-        impl=lambda texto: len(str(texto)),
+    "length": NativeFunction(
+        info=FuncInfo(params=[("text", "string")], return_type="int"),
+        impl=lambda text: len(str(text)),
     ),
-    "maiusculo": NativeFunction(
-        info=FuncInfo(params=[("texto", "string")], return_type="string"),
-        impl=lambda texto: str(texto).upper(),
+    "uppercase": NativeFunction(
+        info=FuncInfo(params=[("text", "string")], return_type="string"),
+        impl=lambda text: str(text).upper(),
     ),
-    "minusculo": NativeFunction(
-        info=FuncInfo(params=[("texto", "string")], return_type="string"),
-        impl=lambda texto: str(texto).lower(),
+    "lowercase": NativeFunction(
+        info=FuncInfo(params=[("text", "string")], return_type="string"),
+        impl=lambda text: str(text).lower(),
     ),
-    "para_int": NativeFunction(
-        info=FuncInfo(params=[("texto", "string")], return_type="int"),
-        impl=lambda texto: int(str(texto)),
+    "to_int": NativeFunction(
+        info=FuncInfo(params=[("text", "string")], return_type="int"),
+        impl=lambda text: int(str(text)),
     ),
-    "para_string": NativeFunction(
-        info=FuncInfo(params=[("valor", "int")], return_type="string"),
-        impl=lambda valor: str(int(valor)),
+    "to_string": NativeFunction(
+        info=FuncInfo(params=[("value", "int")], return_type="string"),
+        impl=lambda value: str(int(value)),
     ),
 }
 
 
-STD_PYTHON_STUB = """def tamanho(texto: str):
-    return len(texto)
+STD_PYTHON_STUB = """def length(text: str):
+    return len(text)
 
-def maiusculo(texto: str):
-    return texto.upper()
+def uppercase(text: str):
+    return text.upper()
 
-def minusculo(texto: str):
-    return texto.lower()
+def lowercase(text: str):
+    return text.lower()
 
-def para_int(texto: str):
-    return int(texto)
+def to_int(text: str):
+    return int(text)
 
-def para_string(valor: int):
-    return str(valor)
+def to_string(value: int):
+    return str(value)
 """
 
 
@@ -146,27 +146,27 @@ def _parse_func_args(args: str, idx: int) -> list[tuple[str, str]]:
     for raw_arg in raw_args.split(","):
         piece = raw_arg.strip()
         if not piece:
-            raise DragonSyntaxError(f"Linha {idx}: argumento vazio em declaração de função")
+            raise DragonSyntaxError(f"Line {idx}: empty argument in function declaration")
 
         name_and_type = piece.split(":", maxsplit=1)
         if len(name_and_type) != 2:
             raise DragonSyntaxError(
-                f"Linha {idx}: parâmetros devem ser tipados (ex: a: int)"
+                f"Line {idx}: parameters must include types (example: a: int)"
             )
 
         name = name_and_type[0].strip()
         type_name = name_and_type[1].strip()
 
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
-            raise DragonSyntaxError(f"Linha {idx}: nome de parâmetro inválido: {name}")
+            raise DragonSyntaxError(f"Line {idx}: invalid parameter name: {name}")
 
         if type_name not in TYPE_NAMES:
             raise DragonSyntaxError(
-                f"Linha {idx}: tipo inválido '{type_name}'. Tipos suportados: int, string, bool"
+                f"Line {idx}: invalid type '{type_name}'. Supported types: int, string, bool"
             )
 
         if name in seen_names:
-            raise DragonSyntaxError(f"Linha {idx}: parâmetro duplicado: {name}")
+            raise DragonSyntaxError(f"Line {idx}: duplicate parameter: {name}")
 
         seen_names.add(name)
         parsed.append((name, type_name))
@@ -211,7 +211,7 @@ def _infer_expr_type(
     try:
         node = ast.parse(expr, mode="eval").body
     except SyntaxError as exc:
-        raise DragonSyntaxError(f"Linha {idx}: expressão inválida: {expr}") from exc
+        raise DragonSyntaxError(f"Line {idx}: invalid expression: {expr}") from exc
 
     def infer(n: ast.AST) -> str:
         if isinstance(n, ast.Constant):
@@ -222,13 +222,13 @@ def _infer_expr_type(
             if isinstance(n.value, str):
                 return "string"
             raise DragonTypeError(
-                f"Linha {idx}: literal não suportado. Use apenas int, string ou bool"
+                f"Line {idx}: unsupported literal. Use only int, string, or bool"
             )
 
         if isinstance(n, ast.Name):
             var_type = _resolve_var_type(n.id, scopes)
             if var_type is None:
-                raise DragonTypeError(f"Linha {idx}: variável '{n.id}' não declarada")
+                raise DragonTypeError(f"Line {idx}: variable '{n.id}' not declared")
             return var_type
 
         if isinstance(n, ast.BinOp):
@@ -241,42 +241,42 @@ def _infer_expr_type(
                 if left_t == right_t == "string":
                     return "string"
                 raise DragonTypeError(
-                    f"Linha {idx}: operador '+' aceita apenas int+int ou string+string"
+                    f"Line {idx}: '+' operator only supports int+int or string+string"
                 )
 
             if isinstance(n.op, (ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod)):
                 if left_t == right_t == "int":
                     return "int"
                 raise DragonTypeError(
-                    f"Linha {idx}: operador aritmético requer operandos int"
+                    f"Line {idx}: arithmetic operator requires int operands"
                 )
 
             if isinstance(n.op, ast.Div):
                 if left_t == right_t == "int":
                     return "int"
                 raise DragonTypeError(
-                    f"Linha {idx}: operador '/' requer operandos int"
+                    f"Line {idx}: '/' operator requires int operands"
                 )
 
-            raise DragonTypeError(f"Linha {idx}: operador não suportado")
+            raise DragonTypeError(f"Line {idx}: unsupported operator")
 
         if isinstance(n, ast.UnaryOp):
             operand_t = infer(n.operand)
             if isinstance(n.op, ast.Not):
                 if operand_t != "bool":
-                    raise DragonTypeError(f"Linha {idx}: operador 'not' requer bool")
+                    raise DragonTypeError(f"Line {idx}: 'not' operator requires bool")
                 return "bool"
             if isinstance(n.op, ast.USub):
                 if operand_t != "int":
-                    raise DragonTypeError(f"Linha {idx}: operador '-' unário requer int")
+                    raise DragonTypeError(f"Line {idx}: unary '-' operator requires int")
                 return "int"
-            raise DragonTypeError(f"Linha {idx}: operador unário não suportado")
+            raise DragonTypeError(f"Line {idx}: unsupported unary operator")
 
         if isinstance(n, ast.BoolOp):
             for value in n.values:
                 if infer(value) != "bool":
                     raise DragonTypeError(
-                        f"Linha {idx}: operadores lógicos requerem valores bool"
+                        f"Line {idx}: logical operators require bool values"
                     )
             return "bool"
 
@@ -286,51 +286,51 @@ def _infer_expr_type(
                 right_t = infer(comp)
                 if left_t != right_t:
                     raise DragonTypeError(
-                        f"Linha {idx}: comparação entre tipos incompatíveis ({left_t} e {right_t})"
+                        f"Line {idx}: comparison between incompatible types ({left_t} and {right_t})"
                     )
                 left_t = right_t
             return "bool"
 
         if isinstance(n, ast.Call):
             if not isinstance(n.func, ast.Name):
-                raise DragonTypeError(f"Linha {idx}: chamada de função inválida")
+                raise DragonTypeError(f"Line {idx}: invalid function call")
 
             func_name = n.func.id
             if func_name == "input":
                 if len(n.args) != 1 or n.keywords:
                     raise DragonTypeError(
-                        f"Linha {idx}: input() aceita exatamente um argumento"
+                        f"Line {idx}: input() accepts exactly one argument"
                     )
                 if infer(n.args[0]) != "string":
                     raise DragonTypeError(
-                        f"Linha {idx}: argumento de input() deve ser string"
+                        f"Line {idx}: input() argument must be string"
                     )
                 return "string"
 
             if func_name == "print":
                 raise DragonTypeError(
-                    f"Linha {idx}: print() só pode ser usado como instrução"
+                    f"Line {idx}: print() can only be used as a statement"
                 )
 
             func_info = _resolve_func(func_name, functions)
             if func_info is None:
-                raise DragonTypeError(f"Linha {idx}: função '{func_name}' não declarada")
+                raise DragonTypeError(f"Line {idx}: function '{func_name}' not declared")
 
             if len(n.args) != len(func_info.params) or n.keywords:
                 raise DragonTypeError(
-                    f"Linha {idx}: função '{func_name}' espera {len(func_info.params)} argumento(s)"
+                    f"Line {idx}: function '{func_name}' expects {len(func_info.params)} argument(s)"
                 )
 
             for arg_node, (param_name, param_type) in zip(n.args, func_info.params):
                 arg_type = infer(arg_node)
                 if arg_type != param_type:
                     raise DragonTypeError(
-                        f"Linha {idx}: argumento '{param_name}' espera {param_type}, recebeu {arg_type}"
+                        f"Line {idx}: argument '{param_name}' expects {param_type}, got {arg_type}"
                     )
 
             return func_info.return_type or "unknown"
 
-        raise DragonTypeError(f"Linha {idx}: expressão não suportada")
+        raise DragonTypeError(f"Line {idx}: unsupported expression")
 
     return infer(node)
 
@@ -359,7 +359,7 @@ def transpile(
 
         if line == "end":
             if not block_stack:
-                raise DragonSyntaxError(f"Linha {idx}: 'end' sem bloco aberto")
+                raise DragonSyntaxError(f"Line {idx}: 'end' without an open block")
             ended = block_stack.pop()
             indent -= 1
             if ended in {"func", "if", "else", "while"}:
@@ -371,7 +371,7 @@ def transpile(
         import_match = IMPORT_RE.match(line)
         if import_match:
             if indent != 0:
-                raise DragonSyntaxError(f"Linha {idx}: import só é permitido no escopo global")
+                raise DragonSyntaxError(f"Line {idx}: import is only allowed at global scope")
             module_name = import_match.group(1)
             if module_name == "std":
                 if not std_loaded:
@@ -385,7 +385,7 @@ def transpile(
                 continue
             if module_loader is None:
                 raise DragonSyntaxError(
-                    f"Linha {idx}: módulo '{module_name}' não encontrado (sem carregador de módulos)"
+                    f"Line {idx}: module '{module_name}' not found (no module loader)"
                 )
             loaded_modules.add(module_name)
             module_source = module_loader(module_name)
@@ -404,7 +404,7 @@ def transpile(
             args = func_match.group(2).strip()
             params = _parse_func_args(args, idx)
             if name in functions:
-                raise DragonSyntaxError(f"Linha {idx}: função '{name}' já declarada")
+                raise DragonSyntaxError(f"Line {idx}: function '{name}' already declared")
             functions[name] = FuncInfo(params=params)
             py_args = ", ".join(
                 f"{param}: {_dragon_type_to_python(param_type)}"
@@ -429,7 +429,7 @@ def transpile(
                 functions=functions,
             )
             if cond_type != "bool":
-                raise DragonTypeError(f"Linha {idx}: condição de if deve ser bool")
+                raise DragonTypeError(f"Line {idx}: if condition must be bool")
             out.append("    " * indent + f"if {condition_py}:")
             indent += 1
             block_stack.append("if")
@@ -438,7 +438,7 @@ def transpile(
 
         if line == "else":
             if not block_stack or block_stack[-1] != "if":
-                raise DragonSyntaxError(f"Linha {idx}: 'else' sem 'if' correspondente")
+                raise DragonSyntaxError(f"Line {idx}: 'else' without matching 'if'")
             scopes.pop()
             indent -= 1
             out.append("    " * indent + "else:")
@@ -458,7 +458,7 @@ def transpile(
                 functions=functions,
             )
             if cond_type != "bool":
-                raise DragonTypeError(f"Linha {idx}: condição de while deve ser bool")
+                raise DragonTypeError(f"Line {idx}: while condition must be bool")
             out.append("    " * indent + f"while {condition_py}:")
             indent += 1
             block_stack.append("while")
@@ -473,7 +473,7 @@ def transpile(
             expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
             if expr_type != declared_type and expr_type != "unknown":
                 raise DragonTypeError(
-                    f"Linha {idx}: variável '{name}' é {declared_type}, mas recebeu {expr_type}"
+                    f"Line {idx}: variable '{name}' is {declared_type}, but got {expr_type}"
                 )
             scopes[-1].vars[name] = declared_type
             py_type = _dragon_type_to_python(declared_type)
@@ -495,11 +495,11 @@ def transpile(
             expr = assign_match.group(2)
             var_type = _resolve_var_type(name, scopes)
             if var_type is None:
-                raise DragonTypeError(f"Linha {idx}: variável '{name}' não declarada")
+                raise DragonTypeError(f"Line {idx}: variable '{name}' not declared")
             expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
             if expr_type != var_type and expr_type != "unknown":
                 raise DragonTypeError(
-                    f"Linha {idx}: variável '{name}' é {var_type}, mas recebeu {expr_type}"
+                    f"Line {idx}: variable '{name}' is {var_type}, but got {expr_type}"
                 )
             out.append("    " * indent + f"{name} = {_normalize_expr(expr)}")
             continue
@@ -508,15 +508,15 @@ def transpile(
             expr = line[len("return ") :].strip()
             expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
             if not func_name_stack:
-                raise DragonSyntaxError(f"Linha {idx}: 'return' fora de função")
+                raise DragonSyntaxError(f"Line {idx}: 'return' outside function")
             current_func_name = func_name_stack[-1]
             current_func = functions[current_func_name]
             if current_func.return_type is None:
                 current_func.return_type = expr_type
             elif expr_type != current_func.return_type:
                 raise DragonTypeError(
-                    f"Linha {idx}: função '{current_func_name}' retorna tipos conflitantes "
-                    f"({current_func.return_type} e {expr_type})"
+                    f"Line {idx}: function '{current_func_name}' returns conflicting types "
+                    f"({current_func.return_type} and {expr_type})"
                 )
             out.append("    " * indent + f"return {_normalize_expr(expr)}")
             continue
@@ -533,12 +533,12 @@ def transpile(
             out.append("    " * indent + _normalize_expr(line))
             continue
 
-        # fallback para expressão/chamada simples
+        # fallback for simple expression/function call
         _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions)
         out.append("    " * indent + _normalize_expr(line))
 
     if indent != 0:
-        raise DragonSyntaxError("Bloco não fechado com 'end'")
+        raise DragonSyntaxError("Block not closed with 'end'")
 
     python_code = "\n".join(out) + "\n"
     return CompileResult(python_code=python_code)
@@ -549,7 +549,7 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
     try:
         node = ast.parse(expr, mode="eval").body
     except SyntaxError as exc:
-        raise DragonSyntaxError(f"Linha {idx}: expressão inválida: {expr}") from exc
+        raise DragonSyntaxError(f"Line {idx}: invalid expression: {expr}") from exc
 
     def emit(op: str, arg: object | None = None) -> None:
         out.append(Instruction(op=op, arg=arg, line=idx))
@@ -569,7 +569,7 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
             if isinstance(n.op, ast.USub):
                 emit("UNARY_NEG")
                 return
-            raise DragonTypeError(f"Linha {idx}: operador unário não suportado")
+            raise DragonTypeError(f"Line {idx}: unsupported unary operator")
         if isinstance(n, ast.BinOp):
             visit(n.left)
             visit(n.right)
@@ -591,10 +591,10 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
             if isinstance(n.op, ast.Mod):
                 emit("BINARY_MOD")
                 return
-            raise DragonTypeError(f"Linha {idx}: operador não suportado")
+            raise DragonTypeError(f"Line {idx}: unsupported operator")
         if isinstance(n, ast.BoolOp):
             if not n.values:
-                raise DragonTypeError(f"Linha {idx}: expressão booleana inválida")
+                raise DragonTypeError(f"Line {idx}: invalid boolean expression")
             visit(n.values[0])
             for nxt in n.values[1:]:
                 visit(nxt)
@@ -603,12 +603,12 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
                 elif isinstance(n.op, ast.Or):
                     emit("BOOL_OR")
                 else:
-                    raise DragonTypeError(f"Linha {idx}: operador lógico não suportado")
+                    raise DragonTypeError(f"Line {idx}: unsupported logical operator")
             return
         if isinstance(n, ast.Compare):
             if len(n.ops) != 1 or len(n.comparators) != 1:
                 raise DragonTypeError(
-                    f"Linha {idx}: comparação encadeada ainda não suportada na VM"
+                    f"Line {idx}: chained comparison is not yet supported in the VM"
                 )
             visit(n.left)
             visit(n.comparators[0])
@@ -622,12 +622,12 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
             }
             cmp_type = type(n.ops[0])
             if cmp_type not in op_map:
-                raise DragonTypeError(f"Linha {idx}: operador de comparação não suportado")
+                raise DragonTypeError(f"Line {idx}: unsupported comparison operator")
             emit("COMPARE", op_map[cmp_type])
             return
         if isinstance(n, ast.Call):
             if not isinstance(n.func, ast.Name):
-                raise DragonTypeError(f"Linha {idx}: chamada de função inválida")
+                raise DragonTypeError(f"Line {idx}: invalid function call")
             func_name = n.func.id
             for arg in n.args:
                 visit(arg)
@@ -636,7 +636,7 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
                 return
             emit("CALL", (func_name, len(n.args)))
             return
-        raise DragonTypeError(f"Linha {idx}: expressão não suportada")
+        raise DragonTypeError(f"Line {idx}: unsupported expression")
 
     visit(node)
 
@@ -677,7 +677,7 @@ def compile_to_bytecode(
             if import_match:
                 if scopes[-1].kind != "global":
                     raise DragonSyntaxError(
-                        f"Linha {idx}: import só é permitido no escopo global"
+                        f"Line {idx}: import is only allowed at global scope"
                     )
                 module_name = import_match.group(1)
                 if module_name == "std":
@@ -690,7 +690,7 @@ def compile_to_bytecode(
                     continue
                 if module_loader is None:
                     raise DragonSyntaxError(
-                        f"Linha {idx}: módulo '{module_name}' não encontrado (sem carregador de módulos)"
+                        f"Line {idx}: module '{module_name}' not found (no module loader)"
                     )
                 loaded_modules.add(module_name)
                 module_source = module_loader(module_name)
@@ -711,7 +711,7 @@ def compile_to_bytecode(
                 args = func_match.group(2).strip()
                 params = _parse_func_args(args, idx)
                 if name in functions:
-                    raise DragonSyntaxError(f"Linha {idx}: função '{name}' já declarada")
+                    raise DragonSyntaxError(f"Line {idx}: function '{name}' already declared")
                 functions[name] = FuncInfo(params=params)
                 pos += 1
                 body_code: list[Instruction] = []
@@ -725,7 +725,7 @@ def compile_to_bytecode(
                 )
                 if inner_pos >= len(sanitized) or sanitized[inner_pos][1] != "end":
                     raise DragonSyntaxError(
-                        f"Linha {idx}: função '{name}' não fechada com 'end'"
+                        f"Line {idx}: function '{name}' not closed with 'end'"
                     )
                 body_code.append(Instruction(op="PUSH_CONST", arg=None, line=idx))
                 body_code.append(Instruction(op="RETURN", line=idx))
@@ -743,7 +743,7 @@ def compile_to_bytecode(
                 condition = if_match.group(1).strip()
                 cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
                 if cond_type != "bool":
-                    raise DragonTypeError(f"Linha {idx}: condição de if deve ser bool")
+                    raise DragonTypeError(f"Line {idx}: if condition must be bool")
                 _compile_expr_to_bytecode(condition, idx, out)
                 jump_if_false_idx = len(out)
                 out.append(Instruction(op="JUMP_IF_FALSE", arg=None, line=idx))
@@ -756,7 +756,7 @@ def compile_to_bytecode(
                     stop_tokens={"else", "end"},
                 )
                 if pos >= len(sanitized):
-                    raise DragonSyntaxError(f"Linha {idx}: if sem 'end'")
+                    raise DragonSyntaxError(f"Line {idx}: if without 'end'")
 
                 token = sanitized[pos][1]
                 if token == "else":
@@ -771,7 +771,7 @@ def compile_to_bytecode(
                         stop_tokens={"end"},
                     )
                     if pos >= len(sanitized) or sanitized[pos][1] != "end":
-                        raise DragonSyntaxError(f"Linha {idx}: else sem 'end'")
+                        raise DragonSyntaxError(f"Line {idx}: else without 'end'")
                     out[jump_end_idx].arg = len(out)
                     pos += 1
                 else:
@@ -784,7 +784,7 @@ def compile_to_bytecode(
                 condition = while_match.group(1).strip()
                 cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
                 if cond_type != "bool":
-                    raise DragonTypeError(f"Linha {idx}: condição de while deve ser bool")
+                    raise DragonTypeError(f"Line {idx}: while condition must be bool")
                 loop_start = len(out)
                 _compile_expr_to_bytecode(condition, idx, out)
                 jump_out_idx = len(out)
@@ -798,7 +798,7 @@ def compile_to_bytecode(
                     stop_tokens={"end"},
                 )
                 if pos >= len(sanitized) or sanitized[pos][1] != "end":
-                    raise DragonSyntaxError(f"Linha {idx}: while sem 'end'")
+                    raise DragonSyntaxError(f"Line {idx}: while without 'end'")
                 out.append(Instruction(op="JUMP", arg=loop_start, line=idx))
                 out[jump_out_idx].arg = len(out)
                 pos += 1
@@ -812,7 +812,7 @@ def compile_to_bytecode(
                 expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
                 if expr_type != declared_type and expr_type != "unknown":
                     raise DragonTypeError(
-                        f"Linha {idx}: variável '{name}' é {declared_type}, mas recebeu {expr_type}"
+                        f"Line {idx}: variable '{name}' is {declared_type}, but got {expr_type}"
                     )
                 scopes[-1].vars[name] = declared_type
                 _compile_expr_to_bytecode(expr, idx, out)
@@ -837,11 +837,11 @@ def compile_to_bytecode(
                 expr = assign_match.group(2)
                 var_type = _resolve_var_type(name, scopes)
                 if var_type is None:
-                    raise DragonTypeError(f"Linha {idx}: variável '{name}' não declarada")
+                    raise DragonTypeError(f"Line {idx}: variable '{name}' not declared")
                 expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
                 if expr_type != var_type and expr_type != "unknown":
                     raise DragonTypeError(
-                        f"Linha {idx}: variável '{name}' é {var_type}, mas recebeu {expr_type}"
+                        f"Line {idx}: variable '{name}' is {var_type}, but got {expr_type}"
                     )
                 _compile_expr_to_bytecode(expr, idx, out)
                 out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
@@ -851,7 +851,7 @@ def compile_to_bytecode(
             if line.startswith("return "):
                 expr = line[len("return ") :].strip()
                 if not func_name_stack:
-                    raise DragonSyntaxError(f"Linha {idx}: 'return' fora de função")
+                    raise DragonSyntaxError(f"Line {idx}: 'return' outside function")
                 expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
                 current_func_name = func_name_stack[-1]
                 current_func = functions[current_func_name]
@@ -859,8 +859,8 @@ def compile_to_bytecode(
                     current_func.return_type = expr_type
                 elif expr_type != current_func.return_type:
                     raise DragonTypeError(
-                        f"Linha {idx}: função '{current_func_name}' retorna tipos conflitantes "
-                        f"({current_func.return_type} e {expr_type})"
+                        f"Line {idx}: function '{current_func_name}' returns conflicting types "
+                        f"({current_func.return_type} and {expr_type})"
                     )
                 _compile_expr_to_bytecode(expr, idx, out)
                 out.append(Instruction(op="RETURN", line=idx))
@@ -895,7 +895,7 @@ def compile_to_bytecode(
     )
     if end_pos != len(sanitized):
         idx, _ = sanitized[end_pos]
-        raise DragonSyntaxError(f"Linha {idx}: bloco não fechado com 'end'")
+        raise DragonSyntaxError(f"Line {idx}: block not closed with 'end'")
     main_code.append(Instruction(op="HALT", line=0))
     return BytecodeProgram(main=main_code, functions=bytecode_functions)
 
@@ -915,7 +915,7 @@ def run_bytecode(program: BytecodeProgram) -> None:
 
     def pop() -> object:
         if not stack:
-            raise RuntimeError("Stack underflow na VM Dragon")
+            raise RuntimeError("Stack underflow in Dragon VM")
         return stack.pop()
 
     while frames:
@@ -938,7 +938,7 @@ def run_bytecode(program: BytecodeProgram) -> None:
             elif name in globals_:
                 stack.append(globals_[name])
             else:
-                raise DragonTypeError(f"Linha {inst.line}: variável '{name}' não declarada")
+                raise DragonTypeError(f"Line {inst.line}: variable '{name}' not declared")
         elif inst.op == "STORE_VAR":
             frame.locals[str(inst.arg)] = pop()
         elif inst.op == "POP":
@@ -957,7 +957,7 @@ def run_bytecode(program: BytecodeProgram) -> None:
                 continue
             if func_name not in program.functions:
                 raise DragonTypeError(
-                    f"Linha {inst.line}: função '{func_name}' não declarada"
+                    f"Line {inst.line}: function '{func_name}' not declared"
                 )
             fn = program.functions[func_name]
             call_locals = {name: value for (name, _), value in zip(fn.params, args)}
@@ -1021,11 +1021,11 @@ def run_bytecode(program: BytecodeProgram) -> None:
             elif inst.arg == ">=":
                 stack.append(a >= b)
             else:
-                raise RuntimeError(f"Comparador inválido: {inst.arg}")
+                raise RuntimeError(f"Invalid comparator: {inst.arg}")
         elif inst.op == "HALT":
             break
         else:
-            raise RuntimeError(f"Opcode inválido: {inst.op}")
+            raise RuntimeError(f"Invalid opcode: {inst.op}")
 
 
 def _instruction_to_dict(inst: Instruction) -> dict[str, object]:
@@ -1036,12 +1036,12 @@ def _instruction_from_dict(raw: dict[str, object]) -> Instruction:
     op = raw.get("op")
     line = raw.get("line")
     if not isinstance(op, str) or not isinstance(line, int):
-        raise DragonSyntaxError("Bytecode inválido: instrução malformada")
+        raise DragonSyntaxError("Invalid bytecode: malformed instruction")
 
     arg = raw.get("arg")
     if op == "CALL" and arg is not None:
         if not (isinstance(arg, list) and len(arg) == 2):
-            raise DragonSyntaxError("Bytecode inválido: argumento de CALL malformado")
+            raise DragonSyntaxError("Invalid bytecode: malformed CALL argument")
         arg = (arg[0], arg[1])
     return Instruction(op=op, arg=arg, line=line)
 
@@ -1068,30 +1068,30 @@ def deserialize_bytecode(content: str) -> BytecodeProgram:
     try:
         raw = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise DragonSyntaxError("Bytecode inválido: arquivo .dbc não é JSON válido") from exc
+        raise DragonSyntaxError("Invalid bytecode: .dbc file is not valid JSON") from exc
 
     if not isinstance(raw, dict):
-        raise DragonSyntaxError("Bytecode inválido: raiz do arquivo deve ser objeto JSON")
+        raise DragonSyntaxError("Invalid bytecode: file root must be a JSON object")
     if raw.get("format") != "dragon-bytecode":
-        raise DragonSyntaxError("Bytecode inválido: cabeçalho de formato desconhecido")
+        raise DragonSyntaxError("Invalid bytecode: unknown format header")
     if raw.get("version") != BYTECODE_FORMAT_VERSION:
-        raise DragonSyntaxError("Bytecode inválido: versão de formato não suportada")
+        raise DragonSyntaxError("Invalid bytecode: unsupported format version")
 
     main_raw = raw.get("main")
     funcs_raw = raw.get("functions")
     if not isinstance(main_raw, list) or not isinstance(funcs_raw, dict):
-        raise DragonSyntaxError("Bytecode inválido: seções 'main' ou 'functions' ausentes")
+        raise DragonSyntaxError("Invalid bytecode: missing 'main' or 'functions' sections")
 
     main = [_instruction_from_dict(inst) for inst in main_raw]
     functions: dict[str, BytecodeFunction] = {}
     for name, fn_raw in funcs_raw.items():
         if not isinstance(name, str) or not isinstance(fn_raw, dict):
-            raise DragonSyntaxError("Bytecode inválido: função malformada")
+            raise DragonSyntaxError("Invalid bytecode: malformed function")
         params_raw = fn_raw.get("params")
         code_raw = fn_raw.get("code")
         return_type = fn_raw.get("return_type")
         if not isinstance(params_raw, list) or not isinstance(code_raw, list):
-            raise DragonSyntaxError("Bytecode inválido: função com params/code inválidos")
+            raise DragonSyntaxError("Invalid bytecode: function with invalid params/code")
         params: list[tuple[str, str]] = []
         for param in params_raw:
             if (
@@ -1100,10 +1100,10 @@ def deserialize_bytecode(content: str) -> BytecodeProgram:
                 or not isinstance(param[0], str)
                 or not isinstance(param[1], str)
             ):
-                raise DragonSyntaxError("Bytecode inválido: parâmetro de função malformado")
+                raise DragonSyntaxError("Invalid bytecode: malformed function parameter")
             params.append((param[0], param[1]))
         if return_type is not None and not isinstance(return_type, str):
-            raise DragonSyntaxError("Bytecode inválido: return_type malformado")
+            raise DragonSyntaxError("Invalid bytecode: malformed return_type")
         code = [_instruction_from_dict(inst) for inst in code_raw]
         functions[name] = BytecodeFunction(
             name=name,
@@ -1137,7 +1137,7 @@ def _make_module_loader(base_dir: pathlib.Path) -> callable:
     def _load(module_name: str) -> str:
         module_path = (base_dir / f"{module_name}.dragon").resolve()
         if not module_path.exists():
-            raise DragonSyntaxError(f"Módulo '{module_name}' não encontrado em {base_dir}")
+            raise DragonSyntaxError(f"Module '{module_name}' not found in {base_dir}")
         return read_file(module_path)
 
     return _load
@@ -1146,7 +1146,7 @@ def _make_module_loader(base_dir: pathlib.Path) -> callable:
 def cmd_transpile(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dragon":
-        print("Erro: arquivo deve ter extensão .dragon", file=sys.stderr)
+        print("Error: file must have .dragon extension", file=sys.stderr)
         return 2
 
     source_code = read_file(src)
@@ -1154,19 +1154,19 @@ def cmd_transpile(args: argparse.Namespace) -> int:
     try:
         result = transpile(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
-        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        print(f"Dragon Error: {exc}", file=sys.stderr)
         return 1
 
     output = pathlib.Path(args.output) if args.output else src.with_suffix(".py")
     write_file(output, result.python_code)
-    print(f"Transpilado com sucesso: {output}")
+    print(f"Successfully transpiled: {output}")
     return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dragon":
-        print("Erro: arquivo deve ter extensão .dragon", file=sys.stderr)
+        print("Error: file must have .dragon extension", file=sys.stderr)
         return 2
 
     source_code = read_file(src)
@@ -1174,7 +1174,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         program = compile_to_bytecode(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
-        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        print(f"Dragon Error: {exc}", file=sys.stderr)
         return 1
 
     run_bytecode(program)
@@ -1184,7 +1184,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_compile(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dragon":
-        print("Erro: arquivo deve ter extensão .dragon", file=sys.stderr)
+        print("Error: file must have .dragon extension", file=sys.stderr)
         return 2
 
     source_code = read_file(src)
@@ -1192,25 +1192,25 @@ def cmd_compile(args: argparse.Namespace) -> int:
     try:
         program = compile_to_bytecode(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
-        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        print(f"Dragon Error: {exc}", file=sys.stderr)
         return 1
 
     output = pathlib.Path(args.output) if args.output else src.with_suffix(".dbc")
     write_bytecode_file(output, program)
-    print(f"Bytecode compilado com sucesso: {output}")
+    print(f"Bytecode compiled successfully: {output}")
     return 0
 
 
 def cmd_runbc(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dbc":
-        print("Erro: arquivo deve ter extensão .dbc", file=sys.stderr)
+        print("Error: file must have .dbc extension", file=sys.stderr)
         return 2
 
     try:
         program = read_bytecode_file(src)
     except (OSError, DragonSyntaxError) as exc:
-        print(f"Erro Dragon: {exc}", file=sys.stderr)
+        print(f"Dragon Error: {exc}", file=sys.stderr)
         return 1
 
     run_bytecode(program)
@@ -1221,22 +1221,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dragon language compiler/VM (MVP)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_transpile = sub.add_parser("transpile", help="Transpila arquivo .dragon para Python")
-    p_transpile.add_argument("file", help="Arquivo fonte .dragon")
-    p_transpile.add_argument("-o", "--output", help="Arquivo de saída .py")
+    p_transpile = sub.add_parser("transpile", help="Transpile .dragon file to Python")
+    p_transpile.add_argument("file", help=".dragon source file")
+    p_transpile.add_argument("-o", "--output", help=".py output file")
     p_transpile.set_defaults(func=cmd_transpile)
 
-    p_run = sub.add_parser("run", help="Executa programa .dragon")
-    p_run.add_argument("file", help="Arquivo fonte .dragon")
+    p_run = sub.add_parser("run", help="Run .dragon program")
+    p_run.add_argument("file", help=".dragon source file")
     p_run.set_defaults(func=cmd_run)
 
-    p_compile = sub.add_parser("compile", help="Compila .dragon para bytecode .dbc")
-    p_compile.add_argument("file", help="Arquivo fonte .dragon")
-    p_compile.add_argument("-o", "--output", help="Arquivo de saída .dbc")
+    p_compile = sub.add_parser("compile", help="Compile .dragon to .dbc bytecode")
+    p_compile.add_argument("file", help=".dragon source file")
+    p_compile.add_argument("-o", "--output", help=".dbc output file")
     p_compile.set_defaults(func=cmd_compile)
 
-    p_runbc = sub.add_parser("runbc", help="Executa bytecode .dbc")
-    p_runbc.add_argument("file", help="Arquivo bytecode .dbc")
+    p_runbc = sub.add_parser("runbc", help="Run .dbc bytecode")
+    p_runbc.add_argument("file", help=".dbc bytecode file")
     p_runbc.set_defaults(func=cmd_runbc)
 
     return parser

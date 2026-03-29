@@ -15,33 +15,33 @@ from dragonc import (
 
 
 def test_transpile_typed_let_and_print():
-    src = 'let nome: string = "Dragon"\nprint(nome)\n'
+    src = 'let name: string = "Dragon"\nprint(name)\n'
     py = transpile(src).python_code
-    assert 'nome: str = "Dragon"' in py
-    assert "print(nome)" in py
+    assert 'name: str = "Dragon"' in py
+    assert "print(name)" in py
 
 
 def test_transpile_function_with_typed_params():
-    src = "func soma(a: int, b: int)\nreturn a + b\nend\n"
+    src = "func add(a: int, b: int)\nreturn a + b\nend\n"
     py = transpile(src).python_code
-    assert "def soma(a: int, b: int):" in py
+    assert "def add(a: int, b: int):" in py
     assert "return a + b" in py
 
 
 def test_function_call_with_string_return_type():
     src = (
-        "func saudacao(nome: string)\n"
-        'return "Olá, " + nome\n'
+        "func greeting(name: string)\n"
+        'return "Hello, " + name\n'
         "end\n"
-        'let msg: string = saudacao("Dragon")\n'
+        'let msg: string = greeting("Dragon")\n'
         "print(msg)\n"
     )
     py = transpile(src).python_code
-    assert 'msg: str = saudacao("Dragon")' in py
+    assert 'msg: str = greeting("Dragon")' in py
 
 
 def test_transpile_if_else_requires_bool_condition():
-    src = 'let x: int = 1\nif x == 1\nprint("ok")\nelse\nprint("erro")\nend\n'
+    src = 'let x: int = 1\nif x == 1\nprint("ok")\nelse\nprint("error")\nend\n'
     py = transpile(src).python_code
     assert "if x == 1:" in py
     assert "else:" in py
@@ -55,26 +55,26 @@ def test_transpile_while():
 
 
 def test_else_without_if_raises_syntax_error():
-    src = 'else\nprint("erro")\nend\n'
+    src = 'else\nprint("error")\nend\n'
     with pytest.raises(DragonSyntaxError):
         transpile(src)
 
 
 def test_transpile_input_string_type():
-    src = 'let nome: string = input("Seu nome: ")\nprint(nome)\n'
+    src = 'let name: string = input("Your name: ")\nprint(name)\n'
     py = transpile(src).python_code
-    assert 'nome: str = input("Seu nome: ")' in py
-    assert "print(nome)" in py
+    assert 'name: str = input("Your name: ")' in py
+    assert "print(name)" in py
 
 
 def test_type_error_on_mismatched_typed_let():
-    src = 'let ativo: bool = 10\n'
+    src = 'let active: bool = 10\n'
     with pytest.raises(DragonTypeError):
         transpile(src)
 
 
 def test_type_error_on_reassignment():
-    src = 'let idade: int = 20\nidade = "vinte"\n'
+    src = 'let age: int = 20\nage = "twenty"\n'
     with pytest.raises(DragonTypeError):
         transpile(src)
 
@@ -86,15 +86,15 @@ def test_type_error_on_if_non_bool_condition():
 
 
 def test_type_error_on_unknown_variable_use():
-    src = "print(nome)\n"
+    src = "print(name)\n"
     with pytest.raises(DragonTypeError):
         transpile(src)
 
 
 def test_bool_literal_lowercase_is_supported():
-    src = "let ativo: bool = true\nif ativo\nprint(\"ok\")\nend\n"
+    src = 'let active: bool = true\nif active\nprint("ok")\nend\n'
     py = transpile(src).python_code
-    assert "ativo: bool = True" in py
+    assert "active: bool = True" in py
 
 
 def test_type_error_on_conflicting_function_return_types():
@@ -119,10 +119,10 @@ def test_bytecode_vm_runs_loop_and_prints(capsys):
 
 def test_bytecode_vm_runs_function_call(capsys):
     src = (
-        "func soma(a: int, b: int)\n"
+        "func add(a: int, b: int)\n"
         "return a + b\n"
         "end\n"
-        "let r: int = soma(2, 3)\n"
+        "let r: int = add(2, 3)\n"
         "print(r)\n"
     )
     program = compile_to_bytecode(src)
@@ -132,7 +132,7 @@ def test_bytecode_vm_runs_function_call(capsys):
 
 
 def test_bytecode_serialization_roundtrip(capsys):
-    src = 'let nome: string = "Dragon"\nprint(nome)\n'
+    src = 'let name: string = "Dragon"\nprint(name)\n'
     original = compile_to_bytecode(src)
     blob = serialize_bytecode(original)
     loaded = deserialize_bytecode(blob)
@@ -163,16 +163,16 @@ def test_runbc_invalid_payload_returns_error(tmp_path, capsys):
     exit_code = cmd_runbc(type("Args", (), {"file": str(bad)}))
     assert exit_code == 1
     err = capsys.readouterr().err
-    assert "não é JSON válido" in err
+    assert "not valid JSON" in err
 
 
 def test_std_module_native_functions(capsys):
     src = (
         "import std\n"
-        'let txt: string = "Dragon"\n'
-        "let n: int = tamanho(txt)\n"
+        'let text: string = "Dragon"\n'
+        "let n: int = length(text)\n"
         "print(n)\n"
-        "print(maiusculo(txt))\n"
+        "print(uppercase(text))\n"
     )
     program = compile_to_bytecode(src)
     run_bytecode(program)
@@ -181,16 +181,16 @@ def test_std_module_native_functions(capsys):
 
 
 def test_transpile_with_std_import_injects_helpers():
-    src = "import std\nlet x: int = tamanho(\"abc\")\nprint(x)\n"
+    src = 'import std\nlet x: int = length("abc")\nprint(x)\n'
     py = transpile(src).python_code
-    assert "def tamanho(texto: str):" in py
-    assert 'x: int = tamanho("abc")' in py
+    assert "def length(text: str):" in py
+    assert 'x: int = length("abc")' in py
 
 
 def test_import_local_module_by_cli_run(tmp_path, capsys):
     mod = tmp_path / "utils.dragon"
     mod.write_text(
-        "func dobro(x: int)\n"
+        "func double(x: int)\n"
         "return x + x\n"
         "end\n",
         encoding="utf-8",
@@ -198,7 +198,7 @@ def test_import_local_module_by_cli_run(tmp_path, capsys):
     main = tmp_path / "main.dragon"
     main.write_text(
         "import utils\n"
-        "let v: int = dobro(21)\n"
+        "let v: int = double(21)\n"
         "print(v)\n",
         encoding="utf-8",
     )

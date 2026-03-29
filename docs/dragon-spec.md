@@ -1,86 +1,86 @@
 # Dragon Language Specification (v0.2)
 
-## 1. Objetivo
-A Dragon é uma linguagem simples para acelerar prototipação de apps e, no futuro, ser uma das linguagens principais do DragonOS.
+## 1. Goal
+Dragon is a simple language to accelerate app prototyping and, in the future, become one of the main languages of DragonOS.
 
-## 2. Extensão de arquivo
-Arquivos Dragon usam a extensão:
+## 2. File extension
+Dragon files use the extension:
 
 ```text
 .dragon
 ```
 
-## 3. Regras léxicas
-- Espaços e tabs no início da linha são ignorados no v0.2.
-- Comentários iniciam com `#`.
-- Linhas vazias são ignoradas.
+## 3. Lexical rules
+- Leading spaces and tabs are ignored in v0.2.
+- Comments start with `#`.
+- Empty lines are ignored.
 
-## 4. Sintaxe (v0.2)
+## 4. Syntax (v0.2)
 
-### 4.1 Tipos básicos
-Tipos suportados no MVP:
+### 4.1 Basic types
+Supported types in the MVP:
 - `int`
 - `string`
 - `bool`
 
-### 4.2 Variáveis
-Declaração explícita com tipo:
+### 4.2 Variables
+Explicit declaration with type:
 
 ```dragon
-let nome: string = "Dragon"
+let name: string = "Dragon"
 let x: int = 10
-let ativo: bool = true
+let active: bool = true
 ```
 
-Também é permitido inferir o tipo na declaração sem anotação:
+Type inference is also allowed when declaring without annotation:
 
 ```dragon
 let total = 42
 ```
 
-Reatribuição usa `=` sem `let`:
+Reassignment uses `=` without `let`:
 
 ```dragon
 total = total + 1
 ```
 
-### 4.3 Saída
+### 4.3 Output
 ```dragon
-print("Olá")
-print(nome)
+print("Hello")
+print(name)
 ```
 
-### 4.4 Entrada (input)
+### 4.4 Input
 ```dragon
-let nome: string = input("Seu nome: ")
-print(nome)
+let name: string = input("Your name: ")
+print(name)
 ```
 
-### 4.5 Funções
-Parâmetros de função devem ser tipados:
+### 4.5 Functions
+Function parameters must include types:
 
 ```dragon
-func soma(a: int, b: int)
+func add(a: int, b: int)
     return a + b
 end
 ```
 
-### 4.6 Chamada de função
+### 4.6 Function call
 ```dragon
-let resultado: int = soma(2, 3)
-print(resultado)
+let result: int = add(2, 3)
+print(result)
 ```
 
-### 4.7 Condicionais
+### 4.7 Conditionals
 ```dragon
 if x > 10
-    print("maior")
+    print("greater")
 else
-    print("menor ou igual")
+    print("less or equal")
 end
 ```
 
-### 4.8 Laços
+### 4.8 Loops
 ```dragon
 let i: int = 0
 while i < 3
@@ -89,25 +89,25 @@ while i < 3
 end
 ```
 
-## 5. Semântica (v0.2)
-- `let` cria variável no escopo atual.
-- `input(...)` lê dados do terminal e retorna `string`.
-- `func` define função; bloco termina com `end`.
-- `if`/`else` permite desvio condicional.
-- `while` permite repetição baseada em condição.
-- `return` encerra execução da função e devolve valor.
-- Expressões são compiladas para bytecode Dragon e executadas na VM Dragon.
-- O compilador realiza checagem estática:
-  - condição de `if/while` deve ser `bool`;
-  - não permite reatribuir variável com tipo diferente;
-  - não permite usar variável não declarada;
-  - valida tipos de argumentos em chamadas de função.
+## 5. Semantics (v0.2)
+- `let` creates a variable in the current scope.
+- `input(...)` reads terminal input and returns `string`.
+- `func` defines a function; the block ends with `end`.
+- `if`/`else` enables conditional branching.
+- `while` enables condition-based repetition.
+- `return` ends function execution and returns a value.
+- Expressions are compiled to Dragon bytecode and executed in the Dragon VM.
+- The compiler performs static checking:
+  - `if/while` conditions must be `bool`;
+  - reassignment to a different type is not allowed;
+  - use of undeclared variables is not allowed;
+  - argument types in function calls are validated.
 
-## 6. Limitações do MVP
-- Sem classes e módulos.
-- Sem anotação explícita de tipo de retorno em `func`.
-- Formato `.dbc` ainda não possui assinatura/criptografia para distribuição segura.
+## 6. MVP limitations
+- No classes or advanced module system.
+- No explicit function return type annotation in `func`.
+- `.dbc` format still has no signature/encryption for secure distribution.
 
-## 7. Roadmap curto
-- v0.3: melhorar inferência e tipos de retorno de função.
-- v0.4: evoluir toolchain (`dragon build`) e empacotamento.
+## 7. Short roadmap
+- v0.3: improve type inference and function return type handling.
+- v0.4: evolve toolchain (`dragon build`) and packaging.
