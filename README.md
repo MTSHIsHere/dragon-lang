@@ -27,42 +27,38 @@ Repository goals:
 ## Structure
 
 - `docs/dragon-spec.md` → initial language specification.
-- `dragonc.py` → main compiler/transpiler.
+- `dragonc.py` → Dragon official CLI implementation (`dragon`).
 - `examples/hello.dragon` → simple example.
 - `examples/math.dragon` → function example.
 - `examples/control_flow.dragon` → `if/else` and `while` example.
 
-## How to run
+## Official CLI
 
 Prerequisite: Python 3.10+
 
 ```bash
-python3 dragonc.py run examples/hello.dragon
-python3 dragonc.py run examples/math.dragon
-python3 dragonc.py run examples/input_and_func.dragon
+dragon run examples/hello.dragon
+dragon run examples/math.dragon
+dragon run examples/input_and_func.dragon
 ```
 
-To transpile without running (legacy mode, useful for debugging):
+To create installable bytecode (`.dbc`) and run it later:
 
 ```bash
-python3 dragonc.py transpile examples/math.dragon -o build/math.py
-```
-
-To compile distributable bytecode (`.dbc`) and run it later:
-
-```bash
-python3 dragonc.py compile examples/math.dragon -o build/math.dbc
-python3 dragonc.py runbc build/math.dbc
+dragon install examples/math.dragon -o build/math.dbc
+dragon runbc build/math.dbc
 ```
 
 To build a distributable app package for CLI or desktop launchers:
 
 ```bash
-python3 dragonc.py build examples/hello.dragon --app-type cli -o build/hello-cli
-python3 dragonc.py build examples/hello.dragon --app-type desktop -o build/hello-desktop
+dragon build examples/hello.dragon --app-type cli -o build/hello-cli
+dragon build examples/hello.dragon --app-type desktop -o build/hello-desktop
 ```
 
 Build output includes bytecode, metadata (`dragon-app.json`), and platform launchers (`run.sh`, `run.bat`). Desktop builds also include a `.desktop` entry.
+
+> Note: direct `python3 dragonc.py ...` usage is still supported for local development.
 
 ## Recommended next steps
 
