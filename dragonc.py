@@ -53,7 +53,7 @@ IF_RE = re.compile(r"^if\s+(.+)$")
 WHILE_RE = re.compile(r"^while\s+(.+)$")
 ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
 TYPE_NAMES = {"int", "string", "bool"}
-IMPORT_RE = re.compile(r"^import\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
+IMPORT_RE = re.compile(r"^import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*$")
 
 
 @dataclass
@@ -174,6 +174,78 @@ def _parse_func_args(args: str, idx: int) -> list[tuple[str, str]]:
     return parsed
 
 
+
+
+def _qualify_function_name(name: str, namespace: str | None) -> str:
+    return f"{namespace}.{name}" if namespace else name
+
+
+def _dragon_func_to_python_name(name: str) -> str:
+    return name.replace(".", "__")
+
+
+def _extract_dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _extract_dotted_name(node.value)
+        if base is None:
+            return None
+        return f"{base}.{node.attr}"
+    return None
+
+
+def _resolve_func_name(name: str, functions: dict[str, FuncInfo], namespace: str | None) -> str | None:
+    if name in functions:
+        return name
+    if "." not in name and namespace:
+        qualified = f"{namespace}.{name}"
+        if qualified in functions:
+            return qualified
+    if "." not in name:
+        suffix = f".{name}"
+        matches = [fn_name for fn_name in functions if fn_name.endswith(suffix)]
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
+def _expr_to_python(
+    expr: str,
+    *,
+    idx: int,
+    functions: dict[str, FuncInfo],
+    namespace: str | None,
+) -> str:
+    expr = _normalize_expr(expr)
+    rewritten_any = False
+    try:
+        node = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise DragonSyntaxError(f"Line {idx}: invalid expression: {expr}") from exc
+
+    class _CallNameRewriter(ast.NodeTransformer):
+        def visit_Call(self, call: ast.Call) -> ast.AST:
+            nonlocal rewritten_any
+            self.generic_visit(call)
+            raw_name = _extract_dotted_name(call.func)
+            if raw_name in {None, "input"}:
+                return call
+            resolved = _resolve_func_name(raw_name, functions, namespace)
+            if resolved is None:
+                return call
+            if resolved == raw_name and "." not in raw_name:
+                return call
+            call.func = ast.Name(id=_dragon_func_to_python_name(resolved), ctx=ast.Load())
+            rewritten_any = True
+            return call
+
+    rewritten = _CallNameRewriter().visit(node)
+    ast.fix_missing_locations(rewritten)
+    if not rewritten_any:
+        return expr
+    return ast.unparse(rewritten.body)
+
 def _resolve_var_type(name: str, scopes: list[ScopeFrame]) -> str | None:
     for frame in reversed(scopes):
         if name in frame.vars:
@@ -181,11 +253,14 @@ def _resolve_var_type(name: str, scopes: list[ScopeFrame]) -> str | None:
     return None
 
 
-def _resolve_func(name: str, functions: dict[str, FuncInfo]) -> FuncInfo | None:
-    return functions.get(name)
+def _resolve_func(name: str, functions: dict[str, FuncInfo], namespace: str | None) -> FuncInfo | None:
+    resolved = _resolve_func_name(name, functions, namespace)
+    if resolved is None:
+        return None
+    return functions.get(resolved)
 
 
-def _collect_function_signatures(source: str) -> dict[str, FuncInfo]:
+def _collect_function_signatures(source: str, *, namespace: str | None = None) -> dict[str, FuncInfo]:
     signatures: dict[str, FuncInfo] = {}
     for idx, raw in enumerate(source.splitlines(), start=1):
         line = _sanitize_line(raw)
@@ -196,7 +271,7 @@ def _collect_function_signatures(source: str) -> dict[str, FuncInfo]:
             continue
         name = func_match.group(1)
         params = _parse_func_args(func_match.group(2).strip(), idx)
-        signatures[name] = FuncInfo(params=params)
+        signatures[_qualify_function_name(name, namespace)] = FuncInfo(params=params)
     return signatures
 
 
@@ -206,6 +281,7 @@ def _infer_expr_type(
     idx: int,
     scopes: list[ScopeFrame],
     functions: dict[str, FuncInfo],
+    namespace: str | None = None,
 ) -> str:
     expr = _normalize_expr(expr)
     try:
@@ -292,10 +368,9 @@ def _infer_expr_type(
             return "bool"
 
         if isinstance(n, ast.Call):
-            if not isinstance(n.func, ast.Name):
+            func_name = _extract_dotted_name(n.func)
+            if func_name is None:
                 raise DragonTypeError(f"Line {idx}: invalid function call")
-
-            func_name = n.func.id
             if func_name == "input":
                 if len(n.args) != 1 or n.keywords:
                     raise DragonTypeError(
@@ -312,7 +387,7 @@ def _infer_expr_type(
                     f"Line {idx}: print() can only be used as a statement"
                 )
 
-            func_info = _resolve_func(func_name, functions)
+            func_info = _resolve_func(func_name, functions, namespace)
             if func_info is None:
                 raise DragonTypeError(f"Line {idx}: function '{func_name}' not declared")
 
@@ -340,6 +415,7 @@ def transpile(
     *,
     module_loader: callable | None = None,
     loaded_modules: set[str] | None = None,
+    namespace: str | None = None,
 ) -> CompileResult:
     lines = source.splitlines()
     out: list[str] = []
@@ -393,27 +469,29 @@ def transpile(
                 module_source,
                 module_loader=module_loader,
                 loaded_modules=loaded_modules,
+                namespace=module_name,
             )
             out.append(module_result.python_code.rstrip())
-            functions.update(_collect_function_signatures(module_source))
+            functions.update(_collect_function_signatures(module_source, namespace=module_name))
             continue
 
         func_match = FUNC_RE.match(line)
         if func_match:
             name = func_match.group(1)
+            declared_name = _qualify_function_name(name, namespace)
             args = func_match.group(2).strip()
             params = _parse_func_args(args, idx)
-            if name in functions:
+            if declared_name in functions:
                 raise DragonSyntaxError(f"Line {idx}: function '{name}' already declared")
-            functions[name] = FuncInfo(params=params)
+            functions[declared_name] = FuncInfo(params=params)
             py_args = ", ".join(
                 f"{param}: {_dragon_type_to_python(param_type)}"
                 for param, param_type in params
             )
-            out.append("    " * indent + f"def {name}({py_args}):")
+            out.append("    " * indent + f"def {_dragon_func_to_python_name(declared_name)}({py_args}):")
             indent += 1
             block_stack.append("func")
-            func_name_stack.append(name)
+            func_name_stack.append(declared_name)
             func_scope = {param: param_type for param, param_type in params}
             scopes.append(ScopeFrame(kind="func", vars=func_scope))
             continue
@@ -427,6 +505,7 @@ def transpile(
                 idx=idx,
                 scopes=scopes,
                 functions=functions,
+                namespace=namespace,
             )
             if cond_type != "bool":
                 raise DragonTypeError(f"Line {idx}: if condition must be bool")
@@ -456,6 +535,7 @@ def transpile(
                 idx=idx,
                 scopes=scopes,
                 functions=functions,
+                namespace=namespace,
             )
             if cond_type != "bool":
                 raise DragonTypeError(f"Line {idx}: while condition must be bool")
@@ -470,23 +550,23 @@ def transpile(
             name = let_typed_match.group(1)
             declared_type = let_typed_match.group(2)
             expr = let_typed_match.group(3)
-            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
             if expr_type != declared_type and expr_type != "unknown":
                 raise DragonTypeError(
                     f"Line {idx}: variable '{name}' is {declared_type}, but got {expr_type}"
                 )
             scopes[-1].vars[name] = declared_type
             py_type = _dragon_type_to_python(declared_type)
-            out.append("    " * indent + f"{name}: {py_type} = {_normalize_expr(expr)}")
+            out.append("    " * indent + f"{name}: {py_type} = {_expr_to_python(expr, idx=idx, functions=functions, namespace=namespace)}")
             continue
 
         let_match = LET_RE.match(line)
         if let_match:
             name = let_match.group(1)
             expr = let_match.group(2)
-            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
             scopes[-1].vars[name] = expr_type
-            out.append("    " * indent + f"{name} = {_normalize_expr(expr)}")
+            out.append("    " * indent + f"{name} = {_expr_to_python(expr, idx=idx, functions=functions, namespace=namespace)}")
             continue
 
         assign_match = ASSIGN_RE.match(line)
@@ -496,17 +576,17 @@ def transpile(
             var_type = _resolve_var_type(name, scopes)
             if var_type is None:
                 raise DragonTypeError(f"Line {idx}: variable '{name}' not declared")
-            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
             if expr_type != var_type and expr_type != "unknown":
                 raise DragonTypeError(
                     f"Line {idx}: variable '{name}' is {var_type}, but got {expr_type}"
                 )
-            out.append("    " * indent + f"{name} = {_normalize_expr(expr)}")
+            out.append("    " * indent + f"{name} = {_expr_to_python(expr, idx=idx, functions=functions, namespace=namespace)}")
             continue
 
         if line.startswith("return "):
             expr = line[len("return ") :].strip()
-            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+            expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
             if not func_name_stack:
                 raise DragonSyntaxError(f"Line {idx}: 'return' outside function")
             current_func_name = func_name_stack[-1]
@@ -518,24 +598,24 @@ def transpile(
                     f"Line {idx}: function '{current_func_name}' returns conflicting types "
                     f"({current_func.return_type} and {expr_type})"
                 )
-            out.append("    " * indent + f"return {_normalize_expr(expr)}")
+            out.append("    " * indent + f"return {_expr_to_python(expr, idx=idx, functions=functions, namespace=namespace)}")
             continue
 
         if line.startswith("print(") and line.endswith(")"):
             expr = line[len("print(") : -1].strip()
             if expr:
-                _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
-            out.append("    " * indent + f"print({_normalize_expr(expr)})")
+                _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
+            out.append("    " * indent + f"print({_expr_to_python(expr, idx=idx, functions=functions, namespace=namespace)})")
             continue
 
         if line.startswith("input(") and line.endswith(")"):
-            _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions)
-            out.append("    " * indent + _normalize_expr(line))
+            _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
+            out.append("    " * indent + _expr_to_python(line, idx=idx, functions=functions, namespace=namespace))
             continue
 
         # fallback for simple expression/function call
-        _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions)
-        out.append("    " * indent + _normalize_expr(line))
+        _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
+        out.append("    " * indent + _expr_to_python(line, idx=idx, functions=functions, namespace=namespace))
 
     if indent != 0:
         raise DragonSyntaxError("Block not closed with 'end'")
@@ -544,7 +624,14 @@ def transpile(
     return CompileResult(python_code=python_code)
 
 
-def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> None:
+def _compile_expr_to_bytecode(
+    expr: str,
+    idx: int,
+    out: list[Instruction],
+    *,
+    functions: dict[str, FuncInfo],
+    namespace: str | None,
+) -> None:
     expr = _normalize_expr(expr)
     try:
         node = ast.parse(expr, mode="eval").body
@@ -626,15 +713,16 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
             emit("COMPARE", op_map[cmp_type])
             return
         if isinstance(n, ast.Call):
-            if not isinstance(n.func, ast.Name):
+            func_name = _extract_dotted_name(n.func)
+            if func_name is None:
                 raise DragonTypeError(f"Line {idx}: invalid function call")
-            func_name = n.func.id
             for arg in n.args:
                 visit(arg)
             if func_name == "input":
                 emit("INPUT")
                 return
-            emit("CALL", (func_name, len(n.args)))
+            resolved = _resolve_func_name(func_name, functions, namespace)
+            emit("CALL", ((resolved or func_name), len(n.args)))
             return
         raise DragonTypeError(f"Line {idx}: unsupported expression")
 
@@ -646,6 +734,7 @@ def compile_to_bytecode(
     *,
     module_loader: callable | None = None,
     loaded_modules: set[str] | None = None,
+    namespace: str | None = None,
 ) -> BytecodeProgram:
     lines = source.splitlines()
     sanitized: list[tuple[int, str]] = []
@@ -698,6 +787,7 @@ def compile_to_bytecode(
                     module_source,
                     module_loader=module_loader,
                     loaded_modules=loaded_modules,
+                    namespace=module_name,
                 )
                 for fn_name, fn in module_program.functions.items():
                     bytecode_functions[fn_name] = fn
@@ -708,11 +798,12 @@ def compile_to_bytecode(
             func_match = FUNC_RE.match(line)
             if func_match:
                 name = func_match.group(1)
+                declared_name = _qualify_function_name(name, namespace)
                 args = func_match.group(2).strip()
                 params = _parse_func_args(args, idx)
-                if name in functions:
+                if declared_name in functions:
                     raise DragonSyntaxError(f"Line {idx}: function '{name}' already declared")
-                functions[name] = FuncInfo(params=params)
+                functions[declared_name] = FuncInfo(params=params)
                 pos += 1
                 body_code: list[Instruction] = []
                 func_scope = ScopeFrame(kind="func", vars={param: typ for param, typ in params})
@@ -720,7 +811,7 @@ def compile_to_bytecode(
                     pos=pos,
                     out=body_code,
                     scopes=scopes + [func_scope],
-                    func_name_stack=func_name_stack + [name],
+                    func_name_stack=func_name_stack + [declared_name],
                     stop_tokens={"end"},
                 )
                 if inner_pos >= len(sanitized) or sanitized[inner_pos][1] != "end":
@@ -729,10 +820,10 @@ def compile_to_bytecode(
                     )
                 body_code.append(Instruction(op="PUSH_CONST", arg=None, line=idx))
                 body_code.append(Instruction(op="RETURN", line=idx))
-                bytecode_functions[name] = BytecodeFunction(
-                    name=name,
+                bytecode_functions[declared_name] = BytecodeFunction(
+                    name=declared_name,
                     params=params,
-                    return_type=functions[name].return_type,
+                    return_type=functions[declared_name].return_type,
                     code=body_code,
                 )
                 pos = inner_pos + 1
@@ -741,10 +832,10 @@ def compile_to_bytecode(
             if_match = IF_RE.match(line)
             if if_match:
                 condition = if_match.group(1).strip()
-                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
+                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 if cond_type != "bool":
                     raise DragonTypeError(f"Line {idx}: if condition must be bool")
-                _compile_expr_to_bytecode(condition, idx, out)
+                _compile_expr_to_bytecode(condition, idx, out, functions=functions, namespace=namespace)
                 jump_if_false_idx = len(out)
                 out.append(Instruction(op="JUMP_IF_FALSE", arg=None, line=idx))
 
@@ -782,11 +873,11 @@ def compile_to_bytecode(
             while_match = WHILE_RE.match(line)
             if while_match:
                 condition = while_match.group(1).strip()
-                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions)
+                cond_type = _infer_expr_type(condition, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 if cond_type != "bool":
                     raise DragonTypeError(f"Line {idx}: while condition must be bool")
                 loop_start = len(out)
-                _compile_expr_to_bytecode(condition, idx, out)
+                _compile_expr_to_bytecode(condition, idx, out, functions=functions, namespace=namespace)
                 jump_out_idx = len(out)
                 out.append(Instruction(op="JUMP_IF_FALSE", arg=None, line=idx))
 
@@ -809,13 +900,13 @@ def compile_to_bytecode(
                 name = let_typed_match.group(1)
                 declared_type = let_typed_match.group(2)
                 expr = let_typed_match.group(3)
-                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 if expr_type != declared_type and expr_type != "unknown":
                     raise DragonTypeError(
                         f"Line {idx}: variable '{name}' is {declared_type}, but got {expr_type}"
                     )
                 scopes[-1].vars[name] = declared_type
-                _compile_expr_to_bytecode(expr, idx, out)
+                _compile_expr_to_bytecode(expr, idx, out, functions=functions, namespace=namespace)
                 out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
                 pos += 1
                 continue
@@ -824,9 +915,9 @@ def compile_to_bytecode(
             if let_match:
                 name = let_match.group(1)
                 expr = let_match.group(2)
-                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 scopes[-1].vars[name] = expr_type
-                _compile_expr_to_bytecode(expr, idx, out)
+                _compile_expr_to_bytecode(expr, idx, out, functions=functions, namespace=namespace)
                 out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
                 pos += 1
                 continue
@@ -838,12 +929,12 @@ def compile_to_bytecode(
                 var_type = _resolve_var_type(name, scopes)
                 if var_type is None:
                     raise DragonTypeError(f"Line {idx}: variable '{name}' not declared")
-                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 if expr_type != var_type and expr_type != "unknown":
                     raise DragonTypeError(
                         f"Line {idx}: variable '{name}' is {var_type}, but got {expr_type}"
                     )
-                _compile_expr_to_bytecode(expr, idx, out)
+                _compile_expr_to_bytecode(expr, idx, out, functions=functions, namespace=namespace)
                 out.append(Instruction(op="STORE_VAR", arg=name, line=idx))
                 pos += 1
                 continue
@@ -852,7 +943,7 @@ def compile_to_bytecode(
                 expr = line[len("return ") :].strip()
                 if not func_name_stack:
                     raise DragonSyntaxError(f"Line {idx}: 'return' outside function")
-                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
+                expr_type = _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
                 current_func_name = func_name_stack[-1]
                 current_func = functions[current_func_name]
                 if current_func.return_type is None:
@@ -862,7 +953,7 @@ def compile_to_bytecode(
                         f"Line {idx}: function '{current_func_name}' returns conflicting types "
                         f"({current_func.return_type} and {expr_type})"
                     )
-                _compile_expr_to_bytecode(expr, idx, out)
+                _compile_expr_to_bytecode(expr, idx, out, functions=functions, namespace=namespace)
                 out.append(Instruction(op="RETURN", line=idx))
                 pos += 1
                 continue
@@ -870,16 +961,16 @@ def compile_to_bytecode(
             if line.startswith("print(") and line.endswith(")"):
                 expr = line[len("print(") : -1].strip()
                 if expr:
-                    _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions)
-                    _compile_expr_to_bytecode(expr, idx, out)
+                    _infer_expr_type(expr, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
+                    _compile_expr_to_bytecode(expr, idx, out, functions=functions, namespace=namespace)
                 else:
                     out.append(Instruction(op="PUSH_CONST", arg="", line=idx))
                 out.append(Instruction(op="PRINT", line=idx))
                 pos += 1
                 continue
 
-            _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions)
-            _compile_expr_to_bytecode(line, idx, out)
+            _infer_expr_type(line, idx=idx, scopes=scopes, functions=functions, namespace=namespace)
+            _compile_expr_to_bytecode(line, idx, out, functions=functions, namespace=namespace)
             out.append(Instruction(op="POP", line=idx))
             pos += 1
 
@@ -1135,7 +1226,7 @@ def write_file(path: pathlib.Path, content: str) -> None:
 
 def _make_module_loader(base_dir: pathlib.Path) -> callable:
     def _load(module_name: str) -> str:
-        module_path = (base_dir / f"{module_name}.dragon").resolve()
+        module_path = (base_dir / pathlib.Path(*module_name.split(".")).with_suffix(".dragon")).resolve()
         if not module_path.exists():
             raise DragonSyntaxError(f"Module '{module_name}' not found in {base_dir}")
         return read_file(module_path)
