@@ -4,6 +4,7 @@ from dragonc import (
     DragonSyntaxError,
     DragonTypeError,
     cmd_compile,
+    cmd_build,
     cmd_run,
     cmd_runbc,
     compile_to_bytecode,
@@ -164,6 +165,55 @@ def test_runbc_invalid_payload_returns_error(tmp_path, capsys):
     assert exit_code == 1
     err = capsys.readouterr().err
     assert "not valid JSON" in err
+
+
+def test_build_cli_package(tmp_path):
+    source = tmp_path / "program.dragon"
+    source.write_text('print("ok")\n', encoding="utf-8")
+    out_dir = tmp_path / "dist" / "mycli"
+
+    exit_code = cmd_build(
+        type(
+            "Args",
+            (),
+            {
+                "file": str(source),
+                "output": str(out_dir),
+                "name": "mycli",
+                "app_type": "cli",
+            },
+        )
+    )
+
+    assert exit_code == 0
+    assert (out_dir / "mycli.dbc").exists()
+    assert (out_dir / "dragon-app.json").exists()
+    assert (out_dir / "run.sh").exists()
+    assert (out_dir / "run.bat").exists()
+    assert not (out_dir / "mycli.desktop").exists()
+
+
+def test_build_desktop_package(tmp_path):
+    source = tmp_path / "program.dragon"
+    source.write_text('print("ok")\n', encoding="utf-8")
+    out_dir = tmp_path / "dist" / "mydesk"
+
+    exit_code = cmd_build(
+        type(
+            "Args",
+            (),
+            {
+                "file": str(source),
+                "output": str(out_dir),
+                "name": "mydesk",
+                "app_type": "desktop",
+            },
+        )
+    )
+
+    assert exit_code == 0
+    assert (out_dir / "mydesk.dbc").exists()
+    assert (out_dir / "mydesk.desktop").exists()
 
 
 def test_std_module_native_functions(capsys):
