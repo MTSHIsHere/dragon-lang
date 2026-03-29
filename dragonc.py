@@ -1272,7 +1272,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_compile(args: argparse.Namespace) -> int:
+def cmd_install(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dragon":
         print("Error: file must have .dragon extension", file=sys.stderr)
@@ -1288,7 +1288,7 @@ def cmd_compile(args: argparse.Namespace) -> int:
 
     output = pathlib.Path(args.output) if args.output else src.with_suffix(".dbc")
     write_bytecode_file(output, program)
-    print(f"Bytecode compiled successfully: {output}")
+    print(f"Install package created successfully: {output}")
     return 0
 
 
@@ -1390,10 +1390,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("file", help=".dragon source file")
     p_run.set_defaults(func=cmd_run)
 
-    p_compile = sub.add_parser("compile", help="Compile .dragon to .dbc bytecode")
+    p_install = sub.add_parser("install", help="Create installable .dbc package")
+    p_install.add_argument("file", help=".dragon source file")
+    p_install.add_argument("-o", "--output", help=".dbc output file")
+    p_install.set_defaults(func=cmd_install)
+
+    p_compile = sub.add_parser("compile", help="(legacy alias) Create installable .dbc package")
     p_compile.add_argument("file", help=".dragon source file")
     p_compile.add_argument("-o", "--output", help=".dbc output file")
-    p_compile.set_defaults(func=cmd_compile)
+    p_compile.set_defaults(func=cmd_install)
 
     p_runbc = sub.add_parser("runbc", help="Run .dbc bytecode")
     p_runbc.add_argument("file", help=".dbc bytecode file")
