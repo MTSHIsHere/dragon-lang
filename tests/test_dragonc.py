@@ -3,8 +3,9 @@ import pytest
 from dragonc import (
     DragonSyntaxError,
     DragonTypeError,
-    cmd_compile,
+    build_parser,
     cmd_build,
+    cmd_install,
     cmd_run,
     cmd_runbc,
     compile_to_bytecode,
@@ -142,19 +143,25 @@ def test_bytecode_serialization_roundtrip(capsys):
     assert out == "Dragon\n"
 
 
-def test_compile_and_runbc_commands(tmp_path, capsys):
+def test_install_and_runbc_commands(tmp_path, capsys):
     source = tmp_path / "program.dragon"
     source.write_text('print("ok")\n', encoding="utf-8")
     out_file = tmp_path / "program.dbc"
 
-    compile_exit = cmd_compile(type("Args", (), {"file": str(source), "output": str(out_file)}))
-    assert compile_exit == 0
+    install_exit = cmd_install(type("Args", (), {"file": str(source), "output": str(out_file)}))
+    assert install_exit == 0
     assert out_file.exists()
 
     run_exit = cmd_runbc(type("Args", (), {"file": str(out_file)}))
     assert run_exit == 0
     out = capsys.readouterr().out
     assert "ok\n" in out
+
+
+def test_cli_install_command_maps_to_install_handler():
+    parser = build_parser()
+    args = parser.parse_args(["install", "examples/hello.dragon"])
+    assert args.func is cmd_install
 
 
 def test_runbc_invalid_payload_returns_error(tmp_path, capsys):
