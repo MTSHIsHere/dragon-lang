@@ -53,6 +53,7 @@ IF_RE = re.compile(r"^if\s+(.+)$")
 WHILE_RE = re.compile(r"^while\s+(.+)$")
 ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
 TYPE_NAMES = {"int", "string", "bool"}
+IMPORT_RE = re.compile(r"^import\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 
 
 @dataclass
@@ -65,6 +66,53 @@ class ScopeFrame:
 class FuncInfo:
     params: list[tuple[str, str]]
     return_type: str | None = None
+
+
+@dataclass
+class NativeFunction:
+    info: FuncInfo
+    impl: callable
+
+
+STD_NATIVE_FUNCTIONS: dict[str, NativeFunction] = {
+    "tamanho": NativeFunction(
+        info=FuncInfo(params=[("texto", "string")], return_type="int"),
+        impl=lambda texto: len(str(texto)),
+    ),
+    "maiusculo": NativeFunction(
+        info=FuncInfo(params=[("texto", "string")], return_type="string"),
+        impl=lambda texto: str(texto).upper(),
+    ),
+    "minusculo": NativeFunction(
+        info=FuncInfo(params=[("texto", "string")], return_type="string"),
+        impl=lambda texto: str(texto).lower(),
+    ),
+    "para_int": NativeFunction(
+        info=FuncInfo(params=[("texto", "string")], return_type="int"),
+        impl=lambda texto: int(str(texto)),
+    ),
+    "para_string": NativeFunction(
+        info=FuncInfo(params=[("valor", "int")], return_type="string"),
+        impl=lambda valor: str(int(valor)),
+    ),
+}
+
+
+STD_PYTHON_STUB = """def tamanho(texto: str):
+    return len(texto)
+
+def maiusculo(texto: str):
+    return texto.upper()
+
+def minusculo(texto: str):
+    return texto.lower()
+
+def para_int(texto: str):
+    return int(texto)
+
+def para_string(valor: int):
+    return str(valor)
+"""
 
 
 def _sanitize_line(line: str) -> str:
@@ -135,6 +183,21 @@ def _resolve_var_type(name: str, scopes: list[ScopeFrame]) -> str | None:
 
 def _resolve_func(name: str, functions: dict[str, FuncInfo]) -> FuncInfo | None:
     return functions.get(name)
+
+
+def _collect_function_signatures(source: str) -> dict[str, FuncInfo]:
+    signatures: dict[str, FuncInfo] = {}
+    for idx, raw in enumerate(source.splitlines(), start=1):
+        line = _sanitize_line(raw)
+        if not line or line.startswith("#"):
+            continue
+        func_match = FUNC_RE.match(line)
+        if not func_match:
+            continue
+        name = func_match.group(1)
+        params = _parse_func_args(func_match.group(2).strip(), idx)
+        signatures[name] = FuncInfo(params=params)
+    return signatures
 
 
 def _infer_expr_type(
@@ -272,7 +335,12 @@ def _infer_expr_type(
     return infer(node)
 
 
-def transpile(source: str) -> CompileResult:
+def transpile(
+    source: str,
+    *,
+    module_loader: callable | None = None,
+    loaded_modules: set[str] | None = None,
+) -> CompileResult:
     lines = source.splitlines()
     out: list[str] = []
     indent = 0
@@ -280,6 +348,8 @@ def transpile(source: str) -> CompileResult:
     scopes: list[ScopeFrame] = [ScopeFrame(kind="global", vars={})]
     functions: dict[str, FuncInfo] = {}
     func_name_stack: list[str] = []
+    loaded_modules = loaded_modules if loaded_modules is not None else set()
+    std_loaded = False
 
     for idx, raw in enumerate(lines, start=1):
         line = _sanitize_line(raw)
@@ -296,6 +366,36 @@ def transpile(source: str) -> CompileResult:
                 scopes.pop()
             if ended == "func":
                 func_name_stack.pop()
+            continue
+
+        import_match = IMPORT_RE.match(line)
+        if import_match:
+            if indent != 0:
+                raise DragonSyntaxError(f"Linha {idx}: import só é permitido no escopo global")
+            module_name = import_match.group(1)
+            if module_name == "std":
+                if not std_loaded:
+                    out.append(STD_PYTHON_STUB.rstrip())
+                    std_loaded = True
+                for native_name, native_fn in STD_NATIVE_FUNCTIONS.items():
+                    functions[native_name] = native_fn.info
+                continue
+
+            if module_name in loaded_modules:
+                continue
+            if module_loader is None:
+                raise DragonSyntaxError(
+                    f"Linha {idx}: módulo '{module_name}' não encontrado (sem carregador de módulos)"
+                )
+            loaded_modules.add(module_name)
+            module_source = module_loader(module_name)
+            module_result = transpile(
+                module_source,
+                module_loader=module_loader,
+                loaded_modules=loaded_modules,
+            )
+            out.append(module_result.python_code.rstrip())
+            functions.update(_collect_function_signatures(module_source))
             continue
 
         func_match = FUNC_RE.match(line)
@@ -541,7 +641,12 @@ def _compile_expr_to_bytecode(expr: str, idx: int, out: list[Instruction]) -> No
     visit(node)
 
 
-def compile_to_bytecode(source: str) -> BytecodeProgram:
+def compile_to_bytecode(
+    source: str,
+    *,
+    module_loader: callable | None = None,
+    loaded_modules: set[str] | None = None,
+) -> BytecodeProgram:
     lines = source.splitlines()
     sanitized: list[tuple[int, str]] = []
     for idx, raw in enumerate(lines, start=1):
@@ -553,6 +658,7 @@ def compile_to_bytecode(source: str) -> BytecodeProgram:
     functions: dict[str, FuncInfo] = {}
     bytecode_functions: dict[str, BytecodeFunction] = {}
     global_scope = ScopeFrame(kind="global", vars={})
+    loaded_modules = loaded_modules if loaded_modules is not None else set()
 
     def compile_block(
         *,
@@ -566,6 +672,38 @@ def compile_to_bytecode(source: str) -> BytecodeProgram:
             idx, line = sanitized[pos]
             if line in stop_tokens:
                 return pos
+
+            import_match = IMPORT_RE.match(line)
+            if import_match:
+                if scopes[-1].kind != "global":
+                    raise DragonSyntaxError(
+                        f"Linha {idx}: import só é permitido no escopo global"
+                    )
+                module_name = import_match.group(1)
+                if module_name == "std":
+                    for native_name, native_fn in STD_NATIVE_FUNCTIONS.items():
+                        functions[native_name] = native_fn.info
+                    pos += 1
+                    continue
+                if module_name in loaded_modules:
+                    pos += 1
+                    continue
+                if module_loader is None:
+                    raise DragonSyntaxError(
+                        f"Linha {idx}: módulo '{module_name}' não encontrado (sem carregador de módulos)"
+                    )
+                loaded_modules.add(module_name)
+                module_source = module_loader(module_name)
+                module_program = compile_to_bytecode(
+                    module_source,
+                    module_loader=module_loader,
+                    loaded_modules=loaded_modules,
+                )
+                for fn_name, fn in module_program.functions.items():
+                    bytecode_functions[fn_name] = fn
+                    functions[fn_name] = FuncInfo(params=fn.params, return_type=fn.return_type)
+                pos += 1
+                continue
 
             func_match = FUNC_RE.match(line)
             if func_match:
@@ -813,6 +951,10 @@ def run_bytecode(program: BytecodeProgram) -> None:
         elif inst.op == "CALL":
             func_name, argc = inst.arg
             args = [pop() for _ in range(argc)][::-1]
+            if func_name in STD_NATIVE_FUNCTIONS:
+                native = STD_NATIVE_FUNCTIONS[func_name]
+                stack.append(native.impl(*args))
+                continue
             if func_name not in program.functions:
                 raise DragonTypeError(
                     f"Linha {inst.line}: função '{func_name}' não declarada"
@@ -991,6 +1133,16 @@ def write_file(path: pathlib.Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _make_module_loader(base_dir: pathlib.Path) -> callable:
+    def _load(module_name: str) -> str:
+        module_path = (base_dir / f"{module_name}.dragon").resolve()
+        if not module_path.exists():
+            raise DragonSyntaxError(f"Módulo '{module_name}' não encontrado em {base_dir}")
+        return read_file(module_path)
+
+    return _load
+
+
 def cmd_transpile(args: argparse.Namespace) -> int:
     src = pathlib.Path(args.file)
     if src.suffix != ".dragon":
@@ -998,8 +1150,9 @@ def cmd_transpile(args: argparse.Namespace) -> int:
         return 2
 
     source_code = read_file(src)
+    module_loader = _make_module_loader(src.parent.resolve())
     try:
-        result = transpile(source_code)
+        result = transpile(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
         print(f"Erro Dragon: {exc}", file=sys.stderr)
         return 1
@@ -1017,8 +1170,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     source_code = read_file(src)
+    module_loader = _make_module_loader(src.parent.resolve())
     try:
-        program = compile_to_bytecode(source_code)
+        program = compile_to_bytecode(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
         print(f"Erro Dragon: {exc}", file=sys.stderr)
         return 1
@@ -1034,8 +1188,9 @@ def cmd_compile(args: argparse.Namespace) -> int:
         return 2
 
     source_code = read_file(src)
+    module_loader = _make_module_loader(src.parent.resolve())
     try:
-        program = compile_to_bytecode(source_code)
+        program = compile_to_bytecode(source_code, module_loader=module_loader)
     except (DragonSyntaxError, DragonTypeError) as exc:
         print(f"Erro Dragon: {exc}", file=sys.stderr)
         return 1

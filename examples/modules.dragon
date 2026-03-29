@@ -1,0 +1,7 @@
+import utils
+import std
+
+let nome: string = "dragon"
+print(maiusculo(nome))
+print(dobro(21))
+print(tamanho(nome))

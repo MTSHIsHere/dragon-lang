@@ -4,6 +4,7 @@ from dragonc import (
     DragonSyntaxError,
     DragonTypeError,
     cmd_compile,
+    cmd_run,
     cmd_runbc,
     compile_to_bytecode,
     deserialize_bytecode,
@@ -163,3 +164,45 @@ def test_runbc_invalid_payload_returns_error(tmp_path, capsys):
     assert exit_code == 1
     err = capsys.readouterr().err
     assert "não é JSON válido" in err
+
+
+def test_std_module_native_functions(capsys):
+    src = (
+        "import std\n"
+        'let txt: string = "Dragon"\n'
+        "let n: int = tamanho(txt)\n"
+        "print(n)\n"
+        "print(maiusculo(txt))\n"
+    )
+    program = compile_to_bytecode(src)
+    run_bytecode(program)
+    out = capsys.readouterr().out
+    assert out == "6\nDRAGON\n"
+
+
+def test_transpile_with_std_import_injects_helpers():
+    src = "import std\nlet x: int = tamanho(\"abc\")\nprint(x)\n"
+    py = transpile(src).python_code
+    assert "def tamanho(texto: str):" in py
+    assert 'x: int = tamanho("abc")' in py
+
+
+def test_import_local_module_by_cli_run(tmp_path, capsys):
+    mod = tmp_path / "utils.dragon"
+    mod.write_text(
+        "func dobro(x: int)\n"
+        "return x + x\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.dragon"
+    main.write_text(
+        "import utils\n"
+        "let v: int = dobro(21)\n"
+        "print(v)\n",
+        encoding="utf-8",
+    )
+    exit_code = cmd_run(type("Args", (), {"file": str(main)}))
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out == "42\n"
