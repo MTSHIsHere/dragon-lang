@@ -36,6 +36,14 @@ Repository goals:
 
 Prerequisite: Python 3.10+
 
+Install the `dragon` command once (editable install for local development):
+
+```bash
+python3 -m pip install -e . --no-build-isolation
+```
+
+If you don't want to install it system/user-wide, run the repo-local launcher with `./dragon ...` instead.
+
 ```bash
 dragon run examples/hello.dragon
 dragon run examples/math.dragon
