@@ -2,9 +2,9 @@ let i: int = 0
 
 while i < 5
 if i % 2 == 0
-print("par")
+print("even")
 else
-print("impar")
+print("odd")
 end
 i = i + 1
 end
