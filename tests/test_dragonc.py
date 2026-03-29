@@ -206,3 +206,49 @@ def test_import_local_module_by_cli_run(tmp_path, capsys):
     assert exit_code == 0
     out = capsys.readouterr().out
     assert out == "42\n"
+
+
+def test_import_module_namespace_calls(tmp_path, capsys):
+    mod = tmp_path / "math.dragon"
+    mod.write_text(
+        "func add(a: int, b: int)\n"
+        "return a + b\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.dragon"
+    main.write_text(
+        "import math\n"
+        "let v: int = math.add(20, 22)\n"
+        "print(v)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cmd_run(type("Args", (), {"file": str(main)}))
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out == "42\n"
+
+
+def test_import_package_module_resolution(tmp_path, capsys):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    mod = pkg / "math.dragon"
+    mod.write_text(
+        "func add(a: int, b: int)\n"
+        "return a + b\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.dragon"
+    main.write_text(
+        "import pkg.math\n"
+        "let v: int = pkg.math.add(40, 2)\n"
+        "print(v)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cmd_run(type("Args", (), {"file": str(main)}))
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out == "42\n"
