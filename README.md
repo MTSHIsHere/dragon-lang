@@ -57,9 +57,8 @@ python3 dragonc.py runbc build/math.dbc
 
 ## Recommended next steps
 
-1. Expand modules with namespaces (`math.add`) and package-based resolution.
-2. Create `dragon build` for desktop/CLI apps.
-3. Define the path for the future DragonOS kernel/userspace.
+1. Create `dragon build` for desktop/CLI apps.
+2. Define the path for the future DragonOS kernel/userspace.
 
 ## Modules and standard library (initial)
 
