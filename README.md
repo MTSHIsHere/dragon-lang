@@ -20,7 +20,9 @@ Objetivo deste repositório:
   - condicionais com `if ... else ... end`
   - laços com `while ... end`
   - `return`
-  - comentários com `#`
+- comentários com `#`
+  - módulos com `import nome_do_modulo`
+  - biblioteca padrão com `import std`
 
 ## Estrutura
 
@@ -55,6 +57,16 @@ python3 dragonc.py runbc build/math.dbc
 
 ## Próximos passos recomendados
 
-1. Implementar módulos e biblioteca padrão.
+1. Expandir módulos com namespaces (`math.soma`) e resolução por pacote.
 2. Criar `dragon build` para apps desktop/CLI.
 3. Definir caminho para kernel/userspace do futuro SO (DragonOS).
+
+## Módulos e biblioteca padrão (inicial)
+
+- `import std` habilita funções nativas:
+  - `tamanho(string) -> int`
+  - `maiusculo(string) -> string`
+  - `minusculo(string) -> string`
+  - `para_int(string) -> int`
+  - `para_string(int) -> string`
+- `import nome` procura por `nome.dragon` na mesma pasta do arquivo principal.
