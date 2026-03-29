@@ -1308,6 +1308,75 @@ def cmd_runbc(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build(args: argparse.Namespace) -> int:
+    src = pathlib.Path(args.file)
+    if src.suffix != ".dragon":
+        print("Error: file must have .dragon extension", file=sys.stderr)
+        return 2
+
+    source_code = read_file(src)
+    module_loader = _make_module_loader(src.parent.resolve())
+    try:
+        program = compile_to_bytecode(source_code, module_loader=module_loader)
+    except (DragonSyntaxError, DragonTypeError) as exc:
+        print(f"Dragon Error: {exc}", file=sys.stderr)
+        return 1
+
+    app_name = args.name or src.stem
+    app_type = args.app_type
+    output_dir = pathlib.Path(args.output) if args.output else pathlib.Path("build") / app_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    bytecode_path = output_dir / f"{app_name}.dbc"
+    write_bytecode_file(bytecode_path, program)
+
+    metadata = {
+        "name": app_name,
+        "entrypoint": bytecode_path.name,
+        "app_type": app_type,
+        "source": src.name,
+        "bytecode_format_version": BYTECODE_FORMAT_VERSION,
+    }
+    write_file(output_dir / "dragon-app.json", json.dumps(metadata, indent=2) + "\n")
+
+    launcher_sh = (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        f'python3 "$SCRIPT_DIR/../dragonc.py" runbc "$SCRIPT_DIR/{bytecode_path.name}" "$@"\n'
+    )
+    write_file(output_dir / "run.sh", launcher_sh)
+    (output_dir / "run.sh").chmod(0o755)
+
+    launcher_bat = (
+        "@echo off\r\n"
+        "set SCRIPT_DIR=%~dp0\r\n"
+        f'python "%SCRIPT_DIR%..\\dragonc.py" runbc "%SCRIPT_DIR%{bytecode_path.name}" %*\r\n'
+    )
+    write_file(output_dir / "run.bat", launcher_bat)
+
+    if app_type == "desktop":
+        desktop_entry = (
+            "[Desktop Entry]\n"
+            "Version=1.0\n"
+            "Type=Application\n"
+            f"Name={app_name}\n"
+            f'Exec=sh -c "{output_dir / "run.sh"}"\n'
+            "Terminal=true\n"
+            "Categories=Utility;\n"
+        )
+        write_file(output_dir / f"{app_name}.desktop", desktop_entry)
+
+    print(f"Build completed: {output_dir}")
+    print(f"- bytecode: {bytecode_path}")
+    print(f"- metadata: {output_dir / 'dragon-app.json'}")
+    print(f"- launcher: {output_dir / 'run.sh'}")
+    print(f"- launcher: {output_dir / 'run.bat'}")
+    if app_type == "desktop":
+        print(f"- desktop entry: {output_dir / f'{app_name}.desktop'}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dragon language compiler/VM (MVP)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1329,6 +1398,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_runbc = sub.add_parser("runbc", help="Run .dbc bytecode")
     p_runbc.add_argument("file", help=".dbc bytecode file")
     p_runbc.set_defaults(func=cmd_runbc)
+
+    p_build = sub.add_parser("build", help="Build desktop/CLI distributable package")
+    p_build.add_argument("file", help=".dragon source file")
+    p_build.add_argument("-o", "--output", help="build output directory")
+    p_build.add_argument("-n", "--name", help="application name (default: source filename)")
+    p_build.add_argument(
+        "--app-type",
+        choices=("cli", "desktop"),
+        default="cli",
+        help="target application type",
+    )
+    p_build.set_defaults(func=cmd_build)
 
     return parser
 

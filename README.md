@@ -55,9 +55,18 @@ python3 dragonc.py compile examples/math.dragon -o build/math.dbc
 python3 dragonc.py runbc build/math.dbc
 ```
 
+To build a distributable app package for CLI or desktop launchers:
+
+```bash
+python3 dragonc.py build examples/hello.dragon --app-type cli -o build/hello-cli
+python3 dragonc.py build examples/hello.dragon --app-type desktop -o build/hello-desktop
+```
+
+Build output includes bytecode, metadata (`dragon-app.json`), and platform launchers (`run.sh`, `run.bat`). Desktop builds also include a `.desktop` entry.
+
 ## Recommended next steps
 
-1. Create `dragon build` for desktop/CLI apps.
+1. Improve the `dragon build` pipeline for installer generation and signing.
 2. Define the path for the future DragonOS kernel/userspace.
 
 ## Modules and standard library (initial)
